@@ -77,7 +77,6 @@ void connection_pool::init(string url, string User, string PassWord, string DBNa
 	m_MaxConn = m_FreeConn;
 }
 
-
 //当有请求时，从数据库连接池中返回一个可用连接，更新使用和空闲连接数
 unique_ptr<Connection> connection_pool::GetConnection()
 {
@@ -139,17 +138,13 @@ connection_pool::~connection_pool()
 	DestroyPool();
 }
 
-connectionRAII::connectionRAII(unique_ptr<Connection>* SQL, connection_pool *connPool) {
-    // 获取连接并移动所有权
-    *SQL = connPool->GetConnection();
-    
-    // 移动连接所有权到 conRAII
-    conRAII = std::move(*SQL);
-    poolRAII = connPool;
+// 构造时直接从连接池获取连接，内部持有
+connectionRAII::connectionRAII(connection_pool* pool) : poolRAII(pool) {
+    conRAII = poolRAII->GetConnection();  // 直接将连接存入内部 unique_ptr
 }
 
+// 析构时释放连接（放回连接池）
 connectionRAII::~connectionRAII() {
-    // 释放连接时移动所有权回连接池
     if (conRAII) {
         poolRAII->ReleaseConnection(std::move(conRAII));
     }

@@ -51,7 +51,7 @@ public:
 
 class connectionRAII {
 public:
-    connectionRAII(unique_ptr<Connection>* con, connection_pool *connPool);
+    connectionRAII(connection_pool *connPool);
     ~connectionRAII();
     // 新增获取连接的方法
     unique_ptr<Connection>& get_conn() { return conRAII; }

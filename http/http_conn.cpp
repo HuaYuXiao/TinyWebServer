@@ -25,9 +25,8 @@ std::unordered_map<std::string, std::string> users;
 void http_conn::initmysql_result(connection_pool *connPool)
 {
     std::cout << "Initializing MySQL results..." << std::endl;
-    // 从连接池获取一个 mariadb::Connection 并读取 user 表
-    std::unique_ptr<Connection> conn = nullptr;
-    connectionRAII mysqlcon(&conn, connPool);
+    // 从连接池获取一个 mariadb::Connection
+    connectionRAII mysqlcon(connPool);
     
     // 通过RAII对象获取有效连接
     auto& db_conn = mysqlcon.get_conn();
@@ -523,8 +522,9 @@ http_conn::HTTP_CODE http_conn::do_request()
                 try
                 {
                     // get a connection from the pool
-                    std::unique_ptr<Connection> conn = nullptr;
-                    connectionRAII raii(&conn, connection_pool::GetInstance());
+                    connectionRAII raii(connection_pool::GetInstance());
+                    // 通过 RAII 对象获取内部持有的连接（替代原来的外部 conn 指针）
+                    auto& conn = raii.get_conn();
 
                     // use prepared statement to avoid injection
                     std::unique_ptr<sql::PreparedStatement> pstmt(

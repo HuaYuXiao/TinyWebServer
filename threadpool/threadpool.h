@@ -124,7 +124,10 @@ void threadpool<T>::run()
                 if (request->read_once())
                 {
                     request->improv = 1;
-                    connectionRAII mysqlcon(&request->mysql, m_connPool);
+                    // 获取内部连接后绑定到 request->mysql
+                    connectionRAII mysqlcon(m_connPool);
+                    // 将 RAII 内部的连接转移给 request->mysql
+                    request->mysql = std::move(mysqlcon.get_conn());
                     request->process();
                 }
                 else
@@ -148,7 +151,10 @@ void threadpool<T>::run()
         }
         else
         {
-            connectionRAII mysqlcon(&request->mysql, m_connPool);
+            // 获取内部连接后绑定到 request->mysql
+            connectionRAII mysqlcon(m_connPool);
+            // 将 RAII 内部的连接转移给 request->mysql
+            request->mysql = std::move(mysqlcon.get_conn());
             request->process();
         }
     }
