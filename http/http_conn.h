@@ -11,7 +11,7 @@
 #include <arpa/inet.h>
 #include <assert.h>
 #include <sys/stat.h>
-#include <string.h>
+#include <string>
 #include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -20,12 +20,12 @@
 #include <errno.h>
 #include <sys/wait.h>
 #include <sys/uio.h>
-#include <map>
 #include "../CGImysql/sql_connection_pool.h"
 #include "../timer/lst_timer.h"
 #include "../log/log.h"
 #include <mariadb/conncpp.hpp>
 
+using namespace std;
 using namespace sql;
 using namespace sql::mariadb;
 
@@ -143,7 +143,6 @@ private:
     int bytes_have_send;
     char *doc_root;
 
-    map<string, string> m_users;
     int m_TRIGMode;
     int m_close_log;
 

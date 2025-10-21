@@ -3,6 +3,9 @@
 #include <memory>
 #include <fstream>
 #include <mutex>
+#include <unordered_map>
+
+using namespace std;
 
 //定义http响应的一些状态信息
 const char *ok_200_title = "OK";
@@ -16,7 +19,8 @@ const char *error_500_title = "Internal Error";
 const char *error_500_form = "There was an unusual problem serving the request file.\n";
 
 std::mutex m_lock;
-std::map<std::string, std::string> users;
+// 用户数据（用户名和密码）是全局共享的（所有连接都需要验证相同的用户），因此用全局变量users存储是合理的，无需每个http_conn实例单独维护一份m_users，否则会造成内存浪费。
+std::unordered_map<std::string, std::string> users;
 
 void http_conn::initmysql_result(connection_pool *connPool)
 {
@@ -36,15 +40,15 @@ void http_conn::initmysql_result(connection_pool *connPool)
     try
     {
         std::unique_ptr<sql::Statement> stmt(db_conn->createStatement());
-        std::unique_ptr<sql::ResultSet> res(stmt->executeQuery("SELECT username,passwd FROM user"));
+        std::unique_ptr<sql::ResultSet> res(stmt->executeQuery("SELECT username, passwd FROM user"));
         while (res->next())
         {
-            std::string temp1 = res->getString(1).c_str();
-            std::string temp2 = res->getString(2).c_str();
+            std::string username = res->getString(1).c_str();
+            std::string passwd = res->getString(2).c_str();
             // 保护对全局 users 映射的访问，避免数据竞争
             {
                 std::lock_guard<std::mutex> guard(m_lock);
-                users[temp1] = temp2;
+                users[username] = passwd;
             }
         }
     }
