@@ -1,7 +1,8 @@
 #include "http_conn.h"
-
-#include <mysql/mysql.h>
+#include <mariadb/conncpp.hpp>
+#include <memory>
 #include <fstream>
+#include <mutex>
 
 //定义http响应的一些状态信息
 const char *ok_200_title = "OK";
@@ -14,45 +15,52 @@ const char *error_404_form = "The requested file was not found on this server.\n
 const char *error_500_title = "Internal Error";
 const char *error_500_form = "There was an unusual problem serving the request file.\n";
 
-locker m_lock;
-map<string, string> users;
+std::mutex m_lock;
+std::map<std::string, std::string> users;
 
 void http_conn::initmysql_result(connection_pool *connPool)
 {
-    //先从连接池中取一个连接
-    MYSQL *mysql = NULL;
-    connectionRAII mysqlcon(&mysql, connPool);
-
-    //在user表中检索username，passwd数据，浏览器端输入
-    if (mysql_query(mysql, "SELECT username,passwd FROM user"))
-    {
-        LOG_ERROR("SELECT error:%s\n", mysql_error(mysql));
+    std::cout << "Initializing MySQL results..." << std::endl;
+    // 从连接池获取一个 mariadb::Connection 并读取 user 表
+    std::unique_ptr<Connection> conn = nullptr;
+    connectionRAII mysqlcon(&conn, connPool);
+    
+    // 通过RAII对象获取有效连接
+    auto& db_conn = mysqlcon.get_conn();
+    if (!db_conn) {
+        std::cout << "Failed to get database connection from pool" << std::endl;
+        LOG_ERROR("Failed to get database connection from pool");
+        return;
     }
-
-    //从表中检索完整的结果集
-    MYSQL_RES *result = mysql_store_result(mysql);
-
-    //返回结果集中的列数
-    int num_fields = mysql_num_fields(result);
-
-    //返回所有字段结构的数组
-    MYSQL_FIELD *fields = mysql_fetch_fields(result);
-
-    //从结果集中获取下一行，将对应的用户名和密码，存入map中
-    while (MYSQL_ROW row = mysql_fetch_row(result))
+    
+    try
     {
-        string temp1(row[0]);
-        string temp2(row[1]);
-        users[temp1] = temp2;
+        std::unique_ptr<sql::Statement> stmt(db_conn->createStatement());
+        std::unique_ptr<sql::ResultSet> res(stmt->executeQuery("SELECT username,passwd FROM user"));
+        while (res->next())
+        {
+            std::string temp1 = res->getString(1).c_str();
+            std::string temp2 = res->getString(2).c_str();
+            // 保护对全局 users 映射的访问，避免数据竞争
+            {
+                std::lock_guard<std::mutex> guard(m_lock);
+                users[temp1] = temp2;
+            }
+        }
+    }
+    catch (SQLException &e)
+    {
+        LOG_ERROR("SELECT error:%s", e.what());
     }
 }
 
-//对文件描述符设置非阻塞
+// 对文件描述符设置非阻塞
 int setnonblocking(int fd)
 {
     int old_option = fcntl(fd, F_GETFL);
     int new_option = old_option | O_NONBLOCK;
     fcntl(fd, F_SETFL, new_option);
+
     return old_option;
 }
 
@@ -105,7 +113,7 @@ void http_conn::close_conn(bool real_close)
         printf("close %d\n", m_sockfd);
         removefd(m_epollfd, m_sockfd);
         m_sockfd = -1;
-        m_user_count--;
+        --m_user_count;
     }
 }
 
@@ -117,7 +125,7 @@ void http_conn::init(int sockfd, const sockaddr_in &addr, char *root, int TRIGMo
     m_address = addr;
 
     addfd(m_epollfd, sockfd, true, m_TRIGMode);
-    m_user_count++;
+    ++m_user_count;
 
     //当浏览器出现连接重置时，可能是网站根目录出错或http响应格式出错或者访问的文件中内容完全为空
     doc_root = root;
@@ -135,7 +143,7 @@ void http_conn::init(int sockfd, const sockaddr_in &addr, char *root, int TRIGMo
 //check_state默认为分析请求行状态
 void http_conn::init()
 {
-    mysql = NULL;
+    mysql = nullptr;
     bytes_to_send = 0;
     bytes_have_send = 0;
     m_check_state = CHECK_STATE_REQUESTLINE;
@@ -319,6 +327,85 @@ http_conn::HTTP_CODE http_conn::parse_headers(char *text)
         text += strspn(text, " \t");
         m_host = text;
     }
+    // 补充日志中出现的未知头部处理
+    else if (strncasecmp(text, "Cache-Control:", 13) == 0)
+    {
+        // 缓存控制头部，无需特殊处理
+        text += 13;
+        text += strspn(text, " \t");
+    }
+    else if (strncasecmp(text, "sec-ch-ua:", 10) == 0)
+    {
+        // 客户端浏览器信息头部，无需特殊处理
+        text += 10;
+        text += strspn(text, " \t");
+    }
+    else if (strncasecmp(text, "sec-ch-ua-mobile:", 16) == 0)
+    {
+        // 客户端设备类型头部，无需特殊处理
+        text += 16;
+        text += strspn(text, " \t");
+    }
+    else if (strncasecmp(text, "sec-ch-ua-platform:", 19) == 0)
+    {
+        // 客户端平台信息头部，无需特殊处理
+        text += 19;
+        text += strspn(text, " \t");
+    }
+    else if (strncasecmp(text, "Upgrade-Insecure-Requests:", 23) == 0)
+    {
+        // 升级不安全请求头部，无需特殊处理
+        text += 23;
+        text += strspn(text, " \t");
+    }
+    else if (strncasecmp(text, "User-Agent:", 11) == 0)
+    {
+        // 用户代理头部，无需特殊处理
+        text += 11;
+        text += strspn(text, " \t");
+    }
+    else if (strncasecmp(text, "Accept:", 7) == 0)
+    {
+        // 接受内容类型头部，无需特殊处理
+        text += 7;
+        text += strspn(text, " \t");
+    }
+    else if (strncasecmp(text, "Sec-Fetch-Site:", 15) == 0)
+    {
+        //  fetch请求来源站点头部，无需特殊处理
+        text += 15;
+        text += strspn(text, " \t");
+    }
+    else if (strncasecmp(text, "Sec-Fetch-Mode:", 15) == 0)
+    {
+        // fetch请求模式头部，无需特殊处理
+        text += 15;
+        text += strspn(text, " \t");
+    }
+    else if (strncasecmp(text, "Sec-Fetch-User:", 16) == 0)
+    {
+        // fetch用户交互头部，无需特殊处理
+        text += 16;
+        text += strspn(text, " \t");
+    }
+    else if (strncasecmp(text, "Sec-Fetch-Dest:", 15) == 0)
+    {
+        // fetch请求目标头部，无需特殊处理
+        text += 15;
+        text += strspn(text, " \t");
+    }
+    else if (strncasecmp(text, "Accept-Encoding:", 15) == 0)
+    {
+        // 接受编码方式头部，无需特殊处理
+        text += 15;
+        text += strspn(text, " \t");
+    }
+    else if (strncasecmp(text, "Accept-Language:", 16) == 0)
+    {
+        // 接受语言头部，无需特殊处理
+        text += 16;
+        text += strspn(text, " \t");
+    }
     else
     {
         LOG_INFO("oop!unknow header: %s", text);
@@ -420,36 +507,57 @@ http_conn::HTTP_CODE http_conn::do_request()
 
         if (*(p + 1) == '3')
         {
-            //如果是注册，先检测数据库中是否有重名的
-            //没有重名的，进行增加数据
-            char *sql_insert = (char *)malloc(sizeof(char) * 200);
-            strcpy(sql_insert, "INSERT INTO user(username, passwd) VALUES(");
-            strcat(sql_insert, "'");
-            strcat(sql_insert, name);
-            strcat(sql_insert, "', '");
-            strcat(sql_insert, password);
-            strcat(sql_insert, "')");
-
-            if (users.find(name) == users.end())
+            // 如果是注册，先检测本地缓存 users 是否存在
+            bool exists = false;
             {
-                m_lock.lock();
-                int res = mysql_query(mysql, sql_insert);
-                users.insert(pair<string, string>(name, password));
-                m_lock.unlock();
+                std::lock_guard<std::mutex> guard(m_lock);
+                exists = (users.find(name) != users.end());
+            }
 
-                if (!res)
+            if (!exists)
+            {
+                try
+                {
+                    // get a connection from the pool
+                    std::unique_ptr<Connection> conn = nullptr;
+                    connectionRAII raii(&conn, connection_pool::GetInstance());
+
+                    // use prepared statement to avoid injection
+                    std::unique_ptr<sql::PreparedStatement> pstmt(
+                        conn->prepareStatement("INSERT INTO user(username, passwd) VALUES(?, ?)")
+                    );
+                    pstmt->setString(1, name);
+                    pstmt->setString(2, password);
+                    pstmt->execute();
+
+                    // 插入数据库成功后，再短时间加锁更新内存 users
+                    {
+                        std::lock_guard<std::mutex> guard(m_lock);
+                        users.insert(std::make_pair(std::string(name), std::string(password)));
+                    }
                     strcpy(m_url, "/log.html");
-                else
+                }
+                catch (SQLException &e)
+                {
+                    // 如果数据库层因唯一索引冲突或其他原因失败，则注册失败
+                    LOG_ERROR("INSERT error:%s", e.what());
                     strcpy(m_url, "/registerError.html");
+                }
             }
             else
                 strcpy(m_url, "/registerError.html");
         }
-        //如果是登录，直接判断
-        //若浏览器端输入的用户名和密码在表中可以查找到，返回1，否则返回0
+        //如果是登录，直接判断（读操作也要加锁以避免数据竞态）
         else if (*(p + 1) == '2')
         {
-            if (users.find(name) != users.end() && users[name] == password)
+            bool ok = false;
+            {
+                std::lock_guard<std::mutex> guard(m_lock);
+                auto it = users.find(name);
+                if (it != users.end() && it->second == password)
+                    ok = true;
+            }
+            if (ok)
                 strcpy(m_url, "/welcome.html");
             else
                 strcpy(m_url, "/logError.html");
@@ -685,6 +793,7 @@ bool http_conn::process_write(HTTP_CODE ret)
     bytes_to_send = m_write_idx;
     return true;
 }
+
 void http_conn::process()
 {
     HTTP_CODE read_ret = process_read();

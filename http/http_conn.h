@@ -1,5 +1,6 @@
 #ifndef HTTPCONNECTION_H
 #define HTTPCONNECTION_H
+
 #include <unistd.h>
 #include <signal.h>
 #include <sys/types.h>
@@ -20,11 +21,13 @@
 #include <sys/wait.h>
 #include <sys/uio.h>
 #include <map>
-
-#include "../lock/locker.h"
 #include "../CGImysql/sql_connection_pool.h"
 #include "../timer/lst_timer.h"
 #include "../log/log.h"
+#include <mariadb/conncpp.hpp>
+
+using namespace sql;
+using namespace sql::mariadb;
 
 class http_conn
 {
@@ -110,7 +113,7 @@ private:
 public:
     static int m_epollfd;
     static int m_user_count;
-    MYSQL *mysql;
+    unique_ptr<sql::Connection> mysql;
     int m_state;  //读为0, 写为1
 
 private:

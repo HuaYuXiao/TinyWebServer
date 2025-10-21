@@ -2,22 +2,24 @@
 #define _CONNECTION_POOL_
 
 #include <stdio.h>
-#include <list>
-#include <mysql/mysql.h>
+#include <deque>
 #include <error.h>
-#include <string.h>
 #include <iostream>
 #include <string>
-#include "../lock/locker.h"
+#include <mariadb/conncpp.hpp>
+#include <mutex>
 #include "../log/log.h"
+#include "../lock/locker.h"
 
 using namespace std;
+using namespace sql;
+using namespace sql::mariadb;
 
 class connection_pool
 {
 public:
-	MYSQL *GetConnection();				 //获取数据库连接
-	bool ReleaseConnection(MYSQL *conn); //释放连接
+	unique_ptr<Connection> GetConnection();				 //获取数据库连接
+	bool ReleaseConnection(unique_ptr<Connection> conn); //释放连接
 	int GetFreeConn();					 //获取连接
 	void DestroyPool();					 //销毁所有连接
 
@@ -33,8 +35,9 @@ private:
 	int m_MaxConn;  //最大连接数
 	int m_CurConn;  //当前已使用的连接数
 	int m_FreeConn; //当前空闲的连接数
-	locker lock;
-	list<MYSQL *> connList; //连接池
+	// std::mutex 会自动构造/析构，线程安全且易用；配合 RAII（std::lock_guard / std::unique_lock）能保证异常安全。
+	std::mutex mtx;
+	deque<unique_ptr<Connection>> connList; //连接池
 	sem reserve;
 
 public:
@@ -46,15 +49,16 @@ public:
 	int m_close_log;	//日志开关
 };
 
-class connectionRAII{
-
+class connectionRAII {
 public:
-	connectionRAII(MYSQL **con, connection_pool *connPool);
-	~connectionRAII();
-	
+    connectionRAII(unique_ptr<Connection>* con, connection_pool *connPool);
+    ~connectionRAII();
+    // 新增获取连接的方法
+    unique_ptr<Connection>& get_conn() { return conRAII; }
+
 private:
-	MYSQL *conRAII;
-	connection_pool *poolRAII;
+    unique_ptr<Connection> conRAII;
+    connection_pool *poolRAII;
 };
 
 #endif

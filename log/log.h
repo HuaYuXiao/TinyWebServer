@@ -6,6 +6,7 @@
 #include <string>
 #include <stdarg.h>
 #include <pthread.h>
+#include <mutex>
 #include "block_queue.h"
 
 using namespace std;
@@ -24,6 +25,7 @@ public:
     {
         Log::get_instance()->async_write_log();
     }
+
     //可选择的参数有日志文件、日志缓冲区大小、最大行数以及最长日志条队列
     bool init(const char *file_name, int close_log, int log_buf_size = 8192, int split_lines = 5000000, int max_queue_size = 0);
 
@@ -40,9 +42,8 @@ private:
         //从阻塞队列中取出一个日志string，写入文件
         while (m_log_queue->pop(single_log))
         {
-            m_mutex.lock();
+            std::lock_guard<std::mutex> lock(m_mutex);
             fputs(single_log.c_str(), m_fp);
-            m_mutex.unlock();
         }
     }
 
@@ -57,7 +58,7 @@ private:
     char *m_buf;
     block_queue<string> *m_log_queue; //阻塞队列
     bool m_is_async;                  //是否同步标志位
-    locker m_mutex;
+    std::mutex m_mutex;               // 替换自定义locker为std::mutex
     int m_close_log; //关闭日志
 };
 

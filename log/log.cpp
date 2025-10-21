@@ -4,6 +4,7 @@
 #include <stdarg.h>
 #include "log.h"
 #include <pthread.h>
+
 using namespace std;
 
 Log::Log()
@@ -14,11 +15,13 @@ Log::Log()
 
 Log::~Log()
 {
+    std::lock_guard<std::mutex> lock(m_mutex);
     if (m_fp != NULL)
     {
         fclose(m_fp);
     }
 }
+
 //异步需要设置阻塞队列的长度，同步不需要设置
 bool Log::init(const char *file_name, int close_log, int log_buf_size, int split_lines, int max_queue_size)
 {
@@ -94,52 +97,51 @@ void Log::write_log(int level, const char *format, ...)
         strcpy(s, "[info]:");
         break;
     }
-    //写入一个log，对m_count++, m_split_lines最大行数
-    m_mutex.lock();
-    m_count++;
 
-    if (m_today != my_tm.tm_mday || m_count % m_split_lines == 0) //everyday log
+    // 日志计数与文件切割
     {
-        
-        char new_log[256] = {0};
-        fflush(m_fp);
-        fclose(m_fp);
-        char tail[16] = {0};
-       
-        snprintf(tail, 16, "%d_%02d_%02d_", my_tm.tm_year + 1900, my_tm.tm_mon + 1, my_tm.tm_mday);
-       
-        if (m_today != my_tm.tm_mday)
+        std::lock_guard<std::mutex> lock(m_mutex);
+        m_count++;
+
+        if (m_today != my_tm.tm_mday || m_count % m_split_lines == 0) 
         {
-            snprintf(new_log, 255, "%s%s%s", dir_name, tail, log_name);
-            m_today = my_tm.tm_mday;
-            m_count = 0;
+            char new_log[256] = {0};
+            fflush(m_fp);
+            fclose(m_fp);
+            char tail[16] = {0};
+           
+            snprintf(tail, 16, "%d_%02d_%02d_", my_tm.tm_year + 1900, my_tm.tm_mon + 1, my_tm.tm_mday);
+           
+            if (m_today != my_tm.tm_mday)
+            {
+                snprintf(new_log, 255, "%s%s%s", dir_name, tail, log_name);
+                m_today = my_tm.tm_mday;
+                m_count = 0;
+            }
+            else
+            {
+                snprintf(new_log, 255, "%s%s%s.%lld", dir_name, tail, log_name, m_count / m_split_lines);
+            }
+            m_fp = fopen(new_log, "a");
         }
-        else
-        {
-            snprintf(new_log, 255, "%s%s%s.%lld", dir_name, tail, log_name, m_count / m_split_lines);
-        }
-        m_fp = fopen(new_log, "a");
     }
- 
-    m_mutex.unlock();
 
     va_list valst;
     va_start(valst, format);
 
     string log_str;
-    m_mutex.lock();
-
-    //写入的具体时间内容格式
-    int n = snprintf(m_buf, 48, "%d-%02d-%02d %02d:%02d:%02d.%06ld %s ",
-                     my_tm.tm_year + 1900, my_tm.tm_mon + 1, my_tm.tm_mday,
-                     my_tm.tm_hour, my_tm.tm_min, my_tm.tm_sec, now.tv_usec, s);
-    
-    int m = vsnprintf(m_buf + n, m_log_buf_size - n - 1, format, valst);
-    m_buf[n + m] = '\n';
-    m_buf[n + m + 1] = '\0';
-    log_str = m_buf;
-
-    m_mutex.unlock();
+    {
+        std::lock_guard<std::mutex> lock(m_mutex);
+        // 写入时间格式
+        int n = snprintf(m_buf, 48, "%d-%02d-%02d %02d:%02d:%02d.%06ld %s ",
+                         my_tm.tm_year + 1900, my_tm.tm_mon + 1, my_tm.tm_mday,
+                         my_tm.tm_hour, my_tm.tm_min, my_tm.tm_sec, now.tv_usec, s);
+        
+        int m = vsnprintf(m_buf + n, m_log_buf_size - n - 1, format, valst);
+        m_buf[n + m] = '\n';
+        m_buf[n + m + 1] = '\0';
+        log_str = m_buf;
+    }
 
     if (m_is_async && !m_log_queue->full())
     {
@@ -147,9 +149,8 @@ void Log::write_log(int level, const char *format, ...)
     }
     else
     {
-        m_mutex.lock();
+        std::lock_guard<std::mutex> lock(m_mutex);
         fputs(log_str.c_str(), m_fp);
-        m_mutex.unlock();
     }
 
     va_end(valst);
@@ -157,8 +158,6 @@ void Log::write_log(int level, const char *format, ...)
 
 void Log::flush(void)
 {
-    m_mutex.lock();
-    //强制刷新写入流缓冲区
+    std::lock_guard<std::mutex> lock(m_mutex);
     fflush(m_fp);
-    m_mutex.unlock();
 }

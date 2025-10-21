@@ -1,14 +1,19 @@
-#include <mysql/mysql.h>
 #include <stdio.h>
 #include <string>
-#include <string.h>
 #include <stdlib.h>
 #include <list>
 #include <pthread.h>
 #include <iostream>
 #include "sql_connection_pool.h"
+#include <mariadb/conncpp.hpp>
+#include <mutex>
 
 using namespace std;
+using namespace sql;
+using namespace sql::mariadb;
+
+// Use mariadb Connector/C++ driver
+static Driver* g_driver = nullptr;
 
 connection_pool::connection_pool()
 {
@@ -22,35 +27,49 @@ connection_pool *connection_pool::GetInstance()
 	return &connPool;
 }
 
-//构造初始化
+//构造初始化: url should be like "tcp://127.0.0.1"
 void connection_pool::init(string url, string User, string PassWord, string DBName, int Port, int MaxConn, int close_log)
 {
 	m_url = url;
-	m_Port = Port;
+	m_Port = to_string(Port);
 	m_User = User;
 	m_PassWord = PassWord;
 	m_DatabaseName = DBName;
 	m_close_log = close_log;
 
+	// initialize driver once
+	if (!g_driver)
+	{
+		g_driver = get_driver_instance();
+	}
+
+	// create connections
 	for (int i = 0; i < MaxConn; i++)
 	{
-		MYSQL *con = NULL;
-		con = mysql_init(con);
-
-		if (con == NULL)
+		try
 		{
-			LOG_ERROR("MySQL Error");
+			// build connect string with port
+			std::string connect_url = "tcp://" + m_url + ":" + m_Port;
+			std::cout << "Connecting to database at: " << connect_url << std::endl;
+			unique_ptr<Connection> conn(
+				g_driver->connect(connect_url, m_User, m_PassWord)
+			);
+			conn->setSchema(m_DatabaseName);
+
+			if (!conn)
+			{
+				LOG_ERROR("MariaDB C++ Connector returned null connection");
+				exit(1);
+			}
+
+			connList.emplace_back(std::move(conn));;
+			++m_FreeConn;
+		}
+		catch (SQLException &e)
+		{
+			LOG_ERROR("MariaDB Connector error: %s", e.what());
 			exit(1);
 		}
-		con = mysql_real_connect(con, url.c_str(), User.c_str(), PassWord.c_str(), DBName.c_str(), Port, NULL, 0);
-
-		if (con == NULL)
-		{
-			LOG_ERROR("MySQL Error");
-			exit(1);
-		}
-		connList.push_back(con);
-		++m_FreeConn;
 	}
 
 	reserve = sem(m_FreeConn);
@@ -60,64 +79,53 @@ void connection_pool::init(string url, string User, string PassWord, string DBNa
 
 
 //当有请求时，从数据库连接池中返回一个可用连接，更新使用和空闲连接数
-MYSQL *connection_pool::GetConnection()
+unique_ptr<Connection> connection_pool::GetConnection()
 {
-	MYSQL *con = NULL;
+    // 等待一个可用资源
+    reserve.wait();
 
-	if (0 == connList.size())
-		return NULL;
+    std::lock_guard<std::mutex> guard(mtx); // 自动解锁
+    if (connList.empty()) {
+        // 理论上不会发生：因为信号量保证了可用计数
+        return nullptr;
+    }
 
-	reserve.wait();
-	
-	lock.lock();
+    std::unique_ptr<Connection> con = std::move(connList.front());
+    connList.pop_front();
 
-	con = connList.front();
-	connList.pop_front();
+    --m_FreeConn;
+    ++m_CurConn;
 
-	--m_FreeConn;
-	++m_CurConn;
-
-	lock.unlock();
-	return con;
+    return con;
 }
 
 //释放当前使用的连接
-bool connection_pool::ReleaseConnection(MYSQL *con)
+bool connection_pool::ReleaseConnection(std::unique_ptr<Connection> conn)
 {
-	if (NULL == con)
-		return false;
+    if (!conn) return false;
 
-	lock.lock();
+    {
+        std::lock_guard<std::mutex> guard(mtx);
+        connList.push_back(std::move(conn));
+        ++m_FreeConn;
+        --m_CurConn;
+    }
 
-	connList.push_back(con);
-	++m_FreeConn;
-	--m_CurConn;
-
-	lock.unlock();
-
-	reserve.post();
-	return true;
+    reserve.post();
+    return true;
 }
 
 //销毁数据库连接池
 void connection_pool::DestroyPool()
 {
-
-	lock.lock();
-	if (connList.size() > 0)
-	{
-		list<MYSQL *>::iterator it;
-		for (it = connList.begin(); it != connList.end(); ++it)
-		{
-			MYSQL *con = *it;
-			mysql_close(con);
-		}
-		m_CurConn = 0;
-		m_FreeConn = 0;
-		connList.clear();
-	}
-
-	lock.unlock();
+    std::lock_guard<std::mutex> guard(mtx);
+    for (auto &con : connList) {
+        try {
+            if (con) con->close();
+        } catch(...) {}
+    }
+    connList.clear();
+    m_CurConn = m_FreeConn = 0;
 }
 
 //当前空闲的连接数
@@ -131,13 +139,18 @@ connection_pool::~connection_pool()
 	DestroyPool();
 }
 
-connectionRAII::connectionRAII(MYSQL **SQL, connection_pool *connPool){
-	*SQL = connPool->GetConnection();
-	
-	conRAII = *SQL;
-	poolRAII = connPool;
+connectionRAII::connectionRAII(unique_ptr<Connection>* SQL, connection_pool *connPool) {
+    // 获取连接并移动所有权
+    *SQL = connPool->GetConnection();
+    
+    // 移动连接所有权到 conRAII
+    conRAII = std::move(*SQL);
+    poolRAII = connPool;
 }
 
-connectionRAII::~connectionRAII(){
-	poolRAII->ReleaseConnection(conRAII);
+connectionRAII::~connectionRAII() {
+    // 释放连接时移动所有权回连接池
+    if (conRAII) {
+        poolRAII->ReleaseConnection(std::move(conRAII));
+    }
 }
