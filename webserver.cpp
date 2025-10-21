@@ -4,8 +4,8 @@ using namespace std;
 
 WebServer::WebServer()
 {
-    //http_conn类对象
-    users = new http_conn[MAX_FD];
+    //http_conn类对象：使用unique_ptr初始化动态数组
+    users = std::make_unique<http_conn[]>(MAX_FD);
 
     //root文件夹路径
     char server_path[200];
@@ -15,8 +15,8 @@ WebServer::WebServer()
     strcpy(m_root, server_path);
     strcat(m_root, root);
 
-    //定时器
-    users_timer = new client_data[MAX_FD];
+    //定时器：使用unique_ptr初始化动态数组
+    users_timer = std::make_unique<client_data[]>(MAX_FD);
 }
 
 WebServer::~WebServer()
@@ -25,13 +25,12 @@ WebServer::~WebServer()
     close(m_listenfd);
     close(m_pipefd[1]);
     close(m_pipefd[0]);
-    delete[] users;
-    delete[] users_timer;
+    free(m_root);  // 只需要释放m_root，其他由智能指针自动管理
 }
 
-void WebServer::init(int port, string user, string passWord, string databaseName, int log_write, 
-                     int opt_linger, int trigmode, int sql_num, int thread_num, int close_log, int actor_model)
-{
+void WebServer::init(
+    int port, string user, string passWord, string databaseName, int log_write, int opt_linger, int trigmode, int sql_num, int thread_num, int close_log, int actor_model
+){
     m_port = port;
     m_user = user;
     m_passWord = passWord;
@@ -82,7 +81,8 @@ void WebServer::sql_pool()
     m_connPool->init("localhost", m_user, m_passWord, m_databaseName, 3306, m_sql_num, m_close_log);
 
     //初始化数据库读取表
-    users->initmysql_result(m_connPool);
+    // users[0] 通过智能指针数组的 [] 运算符获取数组第一个元素的引用
+    users[0].initmysql_result(m_connPool);
 }
 
 void WebServer::thread_pool()
@@ -282,7 +282,7 @@ void WebServer::dealwithread(int sockfd)
         }
 
         //若监测到读事件，将该事件放入请求队列
-        m_pool->append(users + sockfd, 0);
+        m_pool->append(&users[sockfd], 0);
 
         while (true)
         {
@@ -306,7 +306,7 @@ void WebServer::dealwithread(int sockfd)
             LOG_INFO("deal with the client(%s)", inet_ntoa(users[sockfd].get_address()->sin_addr));
 
             //若监测到读事件，将该事件放入请求队列
-            m_pool->append_p(users + sockfd);
+            m_pool->append_p(&users[sockfd]);
 
             if (timer)
             {
@@ -331,7 +331,7 @@ void WebServer::dealwithwrite(int sockfd)
             adjust_timer(timer);
         }
 
-        m_pool->append(users + sockfd, 1);
+        m_pool->append(&users[sockfd], 1);
 
         while (true)
         {
