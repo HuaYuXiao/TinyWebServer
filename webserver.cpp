@@ -50,30 +50,17 @@ void WebServer::init(int port, string user, string passWord, string databaseName
 
 void WebServer::trig_mode()
 {
-    //LT + LT
-    if (0 == m_TRIGMode)
-    {
-        m_LISTENTrigmode = 0;
-        m_CONNTrigmode = 0;
-    }
-    //LT + ET
-    else if (1 == m_TRIGMode)
-    {
-        m_LISTENTrigmode = 0;
-        m_CONNTrigmode = 1;
-    }
-    //ET + LT
-    else if (2 == m_TRIGMode)
-    {
-        m_LISTENTrigmode = 1;
-        m_CONNTrigmode = 0;
-    }
-    //ET + ET
-    else if (3 == m_TRIGMode)
-    {
-        m_LISTENTrigmode = 1;
-        m_CONNTrigmode = 1;
-    }
+    /*
+        观察 m_TRIGMode 与两个模式的对应关系：
+        m_TRIGMode 的二进制只有 2 位（0-3 对应 00、01、10、11）。
+        低位（第 0 位）恰好对应 m_CONNTrigmode（0/1）。
+        高位（第 1 位）恰好对应 m_LISTENTrigmode（0/1）。
+        位运算（&、>>）是 CPU 直接支持的底层操作，执行速度远快于多分支 if-else 判断（避免了条件跳转带来的流水线中断）。
+    */
+    // 提取第0位（低位）作为 m_CONNTrigmode（0:LT，1:ET）
+    m_CONNTrigmode = m_TRIGMode & 1;
+    // 提取第1位（高位）作为 m_LISTENTrigmode（右移1位后取第0位）
+    m_LISTENTrigmode = (m_TRIGMode >> 1) & 1;
 }
 
 void WebServer::log_write()
