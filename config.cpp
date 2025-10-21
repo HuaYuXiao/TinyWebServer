@@ -5,7 +5,7 @@ Config::Config(){
     PORT = 9006;
 
     //日志写入方式，默认同步
-    LOGWrite = 0;
+    sync_log = true;
 
     //触发组合模式,默认listenfd LT + connfd LT
     TRIGMode = 0;
@@ -26,7 +26,7 @@ Config::Config(){
     thread_num = 8;
 
     //关闭日志,默认不关闭
-    close_log = 0;
+    close_log = false;
 
     //并发模型,默认是proactor
     actor_model = 0;
@@ -46,7 +46,7 @@ void Config::parse_arg(int argc, char*argv[]){
         }
         case 'l':
         {
-            LOGWrite = atoi(optarg);
+            sync_log = atoi(optarg);
             break;
         }
         case 'm':
@@ -83,4 +83,14 @@ void Config::parse_arg(int argc, char*argv[]){
             break;
         }
     }
+
+    std::cout << "Config Info: " << std::endl;
+    std::cout << "PORT: " << PORT << std::endl;
+    std::cout << "sync_log: " << sync_log << std::endl;
+    std::cout << "TRIGMode: " << TRIGMode << std::endl;
+    std::cout << "OPT_LINGER: " << OPT_LINGER << std::endl;
+    std::cout << "sql_num: " << sql_num << std::endl;
+    std::cout << "thread_num: " << thread_num << std::endl;
+    std::cout << "close_log: " << close_log << std::endl;
+    std::cout << "actor_model: " << actor_model << std::endl;
 }

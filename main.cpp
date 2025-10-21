@@ -2,10 +2,11 @@
 
 int main(int argc, char *argv[])
 {
+    std::cout << "MariaDB C++ Connector Demo" << std::endl;
     //需要修改的数据库信息,登录名,密码,库名
     string user = "root";
-    string passwd = "root";
-    string databasename = "qgydb";
+    string passwd = " ";
+    string databasename = "yourdb";
 
     //命令行解析
     Config config;
@@ -14,11 +15,20 @@ int main(int argc, char *argv[])
     WebServer server;
 
     //初始化
-    server.init(config.PORT, user, passwd, databasename, config.LOGWrite, 
-                config.OPT_LINGER, config.TRIGMode,  config.sql_num,  config.thread_num, 
-                config.close_log, config.actor_model);
+    server.init(
+        config.PORT, 
+        user, 
+        passwd, 
+        databasename, 
+        config.sync_log, 
+        config.OPT_LINGER, 
+        config.TRIGMode,  
+        config.sql_num,  
+        config.thread_num, 
+        config.close_log, 
+        config.actor_model
+    );
     
-
     //日志
     server.log_write();
 

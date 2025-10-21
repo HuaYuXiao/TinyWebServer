@@ -28,7 +28,7 @@ connection_pool *connection_pool::GetInstance()
 }
 
 //构造初始化: url should be like "tcp://127.0.0.1"
-void connection_pool::init(string url, string User, string PassWord, string DBName, int Port, int MaxConn, int close_log)
+void connection_pool::init(string url, string User, string PassWord, string DBName, int Port, int MaxConn, bool close_log)
 {
 	m_url = url;
 	m_Port = to_string(Port);

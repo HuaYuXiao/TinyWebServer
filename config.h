@@ -17,7 +17,7 @@ public:
     int PORT;
 
     //日志写入方式
-    int LOGWrite;
+    bool sync_log;
 
     //触发组合模式
     int TRIGMode;
@@ -38,7 +38,7 @@ public:
     int thread_num;
 
     //是否关闭日志
-    int close_log;
+    bool close_log;
 
     //并发模型选择
     int actor_model;
