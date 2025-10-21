@@ -11,9 +11,10 @@
 #include <stdlib.h>
 #include <cassert>
 #include <sys/epoll.h>
-
 #include "./threadpool/threadpool.h"
 #include "./http/http_conn.h"
+
+using namespace std;
 
 const int MAX_FD = 65536;           //最大文件描述符
 const int MAX_EVENT_NUMBER = 10000; //最大事件数
@@ -63,7 +64,7 @@ public:
     int m_sql_num;
 
     //线程池相关
-    threadpool<http_conn> *m_pool;
+    std::unique_ptr<threadpool<http_conn>> m_pool;
     int m_thread_num;
 
     //epoll_event相关

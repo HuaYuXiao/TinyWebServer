@@ -1,5 +1,7 @@
 #include "webserver.h"
 
+using namespace std;
+
 WebServer::WebServer()
 {
     //http_conn类对象
@@ -25,7 +27,6 @@ WebServer::~WebServer()
     close(m_pipefd[0]);
     delete[] users;
     delete[] users_timer;
-    delete m_pool;
 }
 
 void WebServer::init(int port, string user, string passWord, string databaseName, int log_write, 
@@ -42,6 +43,9 @@ void WebServer::init(int port, string user, string passWord, string databaseName
     m_TRIGMode = trigmode;
     m_close_log = close_log;
     m_actormodel = actor_model;
+
+    std::cout << "WebServer initialized with port: " << m_port << ", user: " << m_user 
+              << ", database: " << m_databaseName << ", thread_num: " << m_thread_num << std::endl;
 }
 
 void WebServer::trig_mode()
@@ -97,7 +101,8 @@ void WebServer::sql_pool()
 void WebServer::thread_pool()
 {
     //线程池
-    m_pool = new threadpool<http_conn>(m_actormodel, m_connPool, m_thread_num);
+    m_pool = std::make_unique<threadpool<http_conn>>(m_actormodel, m_connPool, m_thread_num);
+    std::cout << "Thread pool created with " << m_thread_num << " threads." << std::endl;
 }
 
 void WebServer::eventListen()
