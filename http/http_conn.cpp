@@ -24,14 +24,12 @@ std::unordered_map<std::string, std::string> users;
 
 void http_conn::initmysql_result(connection_pool *connPool)
 {
-    std::cout << "Initializing MySQL results..." << std::endl;
     // 从连接池获取一个 mariadb::Connection
     connectionRAII mysqlcon(connPool);
     
     // 通过RAII对象获取有效连接
     auto& db_conn = mysqlcon.get_conn();
     if (!db_conn) {
-        std::cout << "Failed to get database connection from pool" << std::endl;
         LOG_ERROR("Failed to get database connection from pool");
         return;
     }
@@ -162,8 +160,8 @@ void http_conn::init()
     m_write_idx = 0;
     cgi = 0;
     m_state = 0;
-    timer_flag = 0;
-    improv = 0;
+    timer_flag = false;
+    improv = false;
 
     memset(m_read_buf, '\0', READ_BUFFER_SIZE);
     memset(m_write_buf, '\0', WRITE_BUFFER_SIZE);

@@ -86,8 +86,8 @@ public:
         return &m_address;
     }
     void initmysql_result(connection_pool *connPool);
-    int timer_flag;
-    int improv;
+    bool timer_flag;
+    bool improv;
 
 
 private:

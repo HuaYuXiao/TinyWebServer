@@ -94,60 +94,104 @@ void WebServer::thread_pool()
 
 void WebServer::eventListen()
 {
-    //网络编程基础步骤
+    // 网络编程核心步骤：创建监听套接字、设置选项、绑定地址、监听连接，以及初始化epoll和信号处理
+    
+    // 1. 创建监听套接字（TCP）
+    // PF_INET：使用IPv4协议族
+    // SOCK_STREAM：使用面向连接的TCP套接字
+    // 0：默认协议（此处为TCP）
     m_listenfd = socket(PF_INET, SOCK_STREAM, 0);
+    // 断言检查套接字创建是否成功（若失败，程序终止并提示错误）
     assert(m_listenfd >= 0);
 
-    //优雅关闭连接
+
+    // 2. 设置套接字关闭选项（SO_LINGER），控制连接关闭时的行为（优雅关闭）
+    // m_OPT_LINGER为配置参数，决定关闭连接时是否等待未发送数据
     if (0 == m_OPT_LINGER)
     {
+        // 选项1：不等待未发送数据，关闭时立即返回
+        // linger结构体：l_onoff=0（关闭SO_LINGER），l_linger=1（忽略，仅占位）
         struct linger tmp = {0, 1};
+        // setsockopt：设置套接字选项
+        // SOL_SOCKET：通用套接字选项层级
+        // SO_LINGER：控制close()调用的行为
         setsockopt(m_listenfd, SOL_SOCKET, SO_LINGER, &tmp, sizeof(tmp));
     }
     else if (1 == m_OPT_LINGER)
     {
+        // 选项2：等待未发送数据，超时后强制关闭
+        // l_onoff=1（启用SO_LINGER），l_linger=1（等待1秒）
         struct linger tmp = {1, 1};
         setsockopt(m_listenfd, SOL_SOCKET, SO_LINGER, &tmp, sizeof(tmp));
     }
 
+
+    // 3. 初始化服务器地址结构体并绑定套接字
     int ret = 0;
-    struct sockaddr_in address;
-    bzero(&address, sizeof(address));
-    address.sin_family = AF_INET;
+    struct sockaddr_in address;  // IPv4地址结构体
+    bzero(&address, sizeof(address));  // 清零地址结构体
+    address.sin_family = AF_INET;      // 地址族为IPv4
+    // 绑定到所有本地网络接口（INADDR_ANY），转换为网络字节序（htonl）
     address.sin_addr.s_addr = htonl(INADDR_ANY);
+    // 绑定端口（m_port），转换为网络字节序（htons）
     address.sin_port = htons(m_port);
 
+    // 允许端口复用（解决服务器重启时“地址已被占用”的问题）
     int flag = 1;
     setsockopt(m_listenfd, SOL_SOCKET, SO_REUSEADDR, &flag, sizeof(flag));
-    ret = bind(m_listenfd, (struct sockaddr *)&address, sizeof(address));
-    assert(ret >= 0);
-    ret = listen(m_listenfd, 5);
-    assert(ret >= 0);
 
+    // 绑定套接字到指定地址和端口
+    ret = bind(m_listenfd, (struct sockaddr *)&address, sizeof(address));
+    assert(ret >= 0);  // 断言绑定成功
+
+    // 开始监听连接（第二个参数5：监听队列最大长度，超过的连接会被拒绝）
+    ret = listen(m_listenfd, 5);
+    assert(ret >= 0);  // 断言监听成功
+
+
+    // 4. 初始化工具类（定时器相关）
+    // TIMESLOT：定时器最小超时单位（在类常量中定义为5秒）
     utils.init(TIMESLOT);
 
-    //epoll创建内核事件表
-    epoll_event events[MAX_EVENT_NUMBER];
-    m_epollfd = epoll_create(5);
-    assert(m_epollfd != -1);
 
+    // 5. 初始化epoll（I/O多路复用核心）
+    // 创建epoll内核事件表（参数5为历史遗留，无实际意义）
+    m_epollfd = epoll_create(5);
+    assert(m_epollfd != -1);  // 断言epoll创建成功
+
+    // 将监听套接字添加到epoll事件集
+    // 参数：epoll描述符、监听套接字、是否边缘触发（此处为false）、监听触发模式（m_LISTENTrigmode）
     utils.addfd(m_epollfd, m_listenfd, false, m_LISTENTrigmode);
+    // 将epoll描述符设置为http_conn类的静态成员，方便所有连接对象访问epoll
     http_conn::m_epollfd = m_epollfd;
 
+
+    // 6. 创建信号管道（用于处理信号事件）
+    // socketpair创建一对相互连接的UNIX域套接字，用于进程内信号传递
     ret = socketpair(PF_UNIX, SOCK_STREAM, 0, m_pipefd);
-    assert(ret != -1);
+    assert(ret != -1);  // 断言管道创建成功
+    // 将管道写端设为非阻塞（避免信号处理时阻塞）
     utils.setnonblocking(m_pipefd[1]);
+    // 将管道读端添加到epoll事件集（监听读事件，用于接收信号）
     utils.addfd(m_epollfd, m_pipefd[0], false, 0);
 
+
+    // 7. 注册信号处理函数
+    // 忽略SIGPIPE信号（避免向已关闭的连接写数据时程序崩溃）
     utils.addsig(SIGPIPE, SIG_IGN);
+    // 注册SIGALRM（定时信号）处理函数为utils.sig_handler
     utils.addsig(SIGALRM, utils.sig_handler, false);
+    // 注册SIGTERM（进程终止信号）处理函数为utils.sig_handler
     utils.addsig(SIGTERM, utils.sig_handler, false);
 
+
+    // 8. 启动定时器（每隔TIMESLOT秒触发一次SIGALRM信号）
     alarm(TIMESLOT);
 
-    //工具类,信号和描述符基础操作
-    Utils::u_pipefd = m_pipefd;
-    Utils::u_epollfd = m_epollfd;
+
+    // 9. 将管道和epoll描述符设置为工具类的静态成员，供信号处理函数访问
+    Utils::u_pipefd = m_pipefd;    // 信号管道描述符
+    Utils::u_epollfd = m_epollfd;  // epoll描述符
 }
 
 void WebServer::timer(int connfd, struct sockaddr_in client_address)
@@ -286,14 +330,14 @@ void WebServer::dealwithread(int sockfd)
 
         while (true)
         {
-            if (1 == users[sockfd].improv)
+            if (users[sockfd].improv)
             {
-                if (1 == users[sockfd].timer_flag)
+                if (users[sockfd].timer_flag)
                 {
                     deal_timer(timer, sockfd);
-                    users[sockfd].timer_flag = 0;
+                    users[sockfd].timer_flag = false;
                 }
-                users[sockfd].improv = 0;
+                users[sockfd].improv = false;
                 break;
             }
         }
@@ -335,14 +379,14 @@ void WebServer::dealwithwrite(int sockfd)
 
         while (true)
         {
-            if (1 == users[sockfd].improv)
+            if (users[sockfd].improv)
             {
-                if (1 == users[sockfd].timer_flag)
+                if (users[sockfd].timer_flag)
                 {
                     deal_timer(timer, sockfd);
-                    users[sockfd].timer_flag = 0;
+                    users[sockfd].timer_flag = false;
                 }
-                users[sockfd].improv = 0;
+                users[sockfd].improv = false;
                 break;
             }
         }

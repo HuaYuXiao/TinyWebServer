@@ -123,7 +123,7 @@ void threadpool<T>::run()
             {
                 if (request->read_once())
                 {
-                    request->improv = 1;
+                    request->improv = true;
                     // 获取内部连接后绑定到 request->mysql
                     connectionRAII mysqlcon(m_connPool);
                     // 将 RAII 内部的连接转移给 request->mysql
@@ -132,20 +132,20 @@ void threadpool<T>::run()
                 }
                 else
                 {
-                    request->improv = 1;
-                    request->timer_flag = 1;
+                    request->improv = true;
+                    request->timer_flag = true;
                 }
             }
             else
             {
                 if (request->write())
                 {
-                    request->improv = 1;
+                    request->improv = true;
                 }
                 else
                 {
-                    request->improv = 1;
-                    request->timer_flag = 1;
+                    request->improv = true;
+                    request->timer_flag = true;
                 }
             }
         }
