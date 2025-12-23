@@ -5,7 +5,7 @@
 #include <cstdio>
 #include <exception>
 #include <pthread.h>
-#include "../lock/locker.h"
+#include <mutex>
 #include "../CGImysql/sql_connection_pool.h"
 
 template <typename T>
@@ -28,7 +28,7 @@ private:
     int m_max_requests;         //请求队列中允许的最大请求数
     pthread_t *m_threads;       //描述线程池的数组，其大小为m_thread_number
     std::list<T *> m_workqueue; //请求队列
-    locker m_queuelocker;       //保护请求队列的互斥锁
+    std::mutex m_queuelocker;       //保护请求队列的互斥锁
     sem m_queuestat;            //是否有任务需要处理
     connection_pool *m_connPool;  //数据库
     int m_actor_model;          //模型切换
@@ -63,29 +63,29 @@ threadpool<T>::~threadpool()
 template <typename T>
 bool threadpool<T>::append(T *request, int state)
 {
-    m_queuelocker.lock();
-    if (m_workqueue.size() >= m_max_requests)
     {
-        m_queuelocker.unlock();
-        return false;
+        std::lock_guard<std::mutex> lock(m_queuelocker);
+        if (m_workqueue.size() >= m_max_requests)
+        {
+            return false;
+        }
+        request->m_state = state;
+        m_workqueue.push_back(request);
     }
-    request->m_state = state;
-    m_workqueue.push_back(request);
-    m_queuelocker.unlock();
     m_queuestat.post();
     return true;
 }
 template <typename T>
 bool threadpool<T>::append_p(T *request)
 {
-    m_queuelocker.lock();
-    if (m_workqueue.size() >= m_max_requests)
     {
-        m_queuelocker.unlock();
-        return false;
+        std::lock_guard<std::mutex> lock(m_queuelocker);
+        if (m_workqueue.size() >= m_max_requests)
+        {
+            return false;
+        }
+        m_workqueue.push_back(request);
     }
-    m_workqueue.push_back(request);
-    m_queuelocker.unlock();
     m_queuestat.post();
     return true;
 }
@@ -102,17 +102,20 @@ void threadpool<T>::run()
     while (true)
     {
         m_queuestat.wait();
-        m_queuelocker.lock();
-        if (m_workqueue.empty())
+        T *request = nullptr;
         {
-            m_queuelocker.unlock();
+            std::lock_guard<std::mutex> lock(m_queuelocker);
+            if (m_workqueue.empty())
+            {
+                continue;
+            }
+            request = m_workqueue.front();
+            m_workqueue.pop_front();
+        }
+        if (!request)
+        {
             continue;
         }
-        T *request = m_workqueue.front();
-        m_workqueue.pop_front();
-        m_queuelocker.unlock();
-        if (!request)
-            continue;
         if (1 == m_actor_model)
         {
             if (0 == request->m_state)

@@ -6,6 +6,7 @@
 #include <string>
 #include <stdarg.h>
 #include <pthread.h>
+#include <mutex>
 #include "block_queue.h"
 
 using namespace std;
@@ -40,9 +41,8 @@ private:
         //从阻塞队列中取出一个日志string，写入文件
         while (m_log_queue->pop(single_log))
         {
-            m_mutex.lock();
+            std::lock_guard<std::mutex> lock(m_mutex);
             fputs(single_log.c_str(), m_fp);
-            m_mutex.unlock();
         }
     }
 
@@ -57,7 +57,7 @@ private:
     char *m_buf;
     block_queue<string> *m_log_queue; //阻塞队列
     bool m_is_async;                  //是否同步标志位
-    locker m_mutex;
+    std::mutex m_mutex;
     int m_close_log; //关闭日志
 };
 

@@ -4,6 +4,7 @@
 #include <exception>
 #include <pthread.h>
 #include <semaphore.h>
+#include <mutex>
 
 class sem
 {
@@ -38,36 +39,7 @@ public:
 private:
     sem_t m_sem;
 };
-class locker
-{
-public:
-    locker()
-    {
-        if (pthread_mutex_init(&m_mutex, NULL) != 0)
-        {
-            throw std::exception();
-        }
-    }
-    ~locker()
-    {
-        pthread_mutex_destroy(&m_mutex);
-    }
-    bool lock()
-    {
-        return pthread_mutex_lock(&m_mutex) == 0;
-    }
-    bool unlock()
-    {
-        return pthread_mutex_unlock(&m_mutex) == 0;
-    }
-    pthread_mutex_t *get()
-    {
-        return &m_mutex;
-    }
 
-private:
-    pthread_mutex_t m_mutex;
-};
 class cond
 {
 public:
@@ -75,7 +47,6 @@ public:
     {
         if (pthread_cond_init(&m_cond, NULL) != 0)
         {
-            //pthread_mutex_destroy(&m_mutex);
             throw std::exception();
         }
     }
@@ -83,21 +54,15 @@ public:
     {
         pthread_cond_destroy(&m_cond);
     }
-    bool wait(pthread_mutex_t *m_mutex)
+    bool wait(std::mutex &m_mutex)
     {
-        int ret = 0;
-        //pthread_mutex_lock(&m_mutex);
-        ret = pthread_cond_wait(&m_cond, m_mutex);
-        //pthread_mutex_unlock(&m_mutex);
-        return ret == 0;
+        std::unique_lock<std::mutex> lock(m_mutex);
+        return pthread_cond_wait(&m_cond, reinterpret_cast<pthread_mutex_t *>(lock.mutex())) == 0;
     }
-    bool timewait(pthread_mutex_t *m_mutex, struct timespec t)
+    bool timewait(std::mutex &m_mutex, struct timespec t)
     {
-        int ret = 0;
-        //pthread_mutex_lock(&m_mutex);
-        ret = pthread_cond_timedwait(&m_cond, m_mutex, &t);
-        //pthread_mutex_unlock(&m_mutex);
-        return ret == 0;
+        std::unique_lock<std::mutex> lock(m_mutex);
+        return pthread_cond_timedwait(&m_cond, reinterpret_cast<pthread_mutex_t *>(lock.mutex()), &t) == 0;
     }
     bool signal()
     {
@@ -109,7 +74,7 @@ public:
     }
 
 private:
-    //static pthread_mutex_t m_mutex;
     pthread_cond_t m_cond;
 };
+
 #endif

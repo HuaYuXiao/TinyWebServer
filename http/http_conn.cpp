@@ -14,8 +14,8 @@ const char *error_404_form = "The requested file was not found on this server.\n
 const char *error_500_title = "Internal Error";
 const char *error_500_form = "There was an unusual problem serving the request file.\n";
 
-locker m_lock;
-map<string, string> users;
+std::mutex m_lock;
+std::map<std::string, std::string> users;
 
 void http_conn::initmysql_result(connection_pool *connPool)
 {
@@ -41,9 +41,12 @@ void http_conn::initmysql_result(connection_pool *connPool)
     //从结果集中获取下一行，将对应的用户名和密码，存入map中
     while (MYSQL_ROW row = mysql_fetch_row(result))
     {
-        string temp1(row[0]);
-        string temp2(row[1]);
-        users[temp1] = temp2;
+        std::string temp1(row[0]);
+        std::string temp2(row[1]);
+        {
+            std::lock_guard<std::mutex> lock(m_lock);
+            users[temp1] = temp2;
+        }
     }
 }
 
@@ -432,10 +435,11 @@ http_conn::HTTP_CODE http_conn::do_request()
 
             if (users.find(name) == users.end())
             {
-                m_lock.lock();
-                int res = mysql_query(mysql, sql_insert);
-                users.insert(pair<string, string>(name, password));
-                m_lock.unlock();
+                {
+                    std::lock_guard<std::mutex> lock(m_lock);
+                    int res = mysql_query(mysql, sql_insert);
+                    users.insert(std::pair<std::string, std::string>(name, password));
+                }
 
                 if (!res)
                     strcpy(m_url, "/log.html");

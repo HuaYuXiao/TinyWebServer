@@ -6,6 +6,7 @@
 #include <list>
 #include <pthread.h>
 #include <iostream>
+#include <mutex>
 #include "sql_connection_pool.h"
 
 using namespace std;
@@ -68,16 +69,14 @@ MYSQL *connection_pool::GetConnection()
 		return NULL;
 
 	reserve.wait();
-	
-	lock.lock();
+	{
+		std::lock_guard<std::mutex> lockGuard(lock);
+		con = connList.front();
+		connList.pop_front();
 
-	con = connList.front();
-	connList.pop_front();
-
-	--m_FreeConn;
-	++m_CurConn;
-
-	lock.unlock();
+		--m_FreeConn;
+		++m_CurConn;
+	}
 	return con;
 }
 
@@ -87,13 +86,12 @@ bool connection_pool::ReleaseConnection(MYSQL *con)
 	if (NULL == con)
 		return false;
 
-	lock.lock();
-
-	connList.push_back(con);
-	++m_FreeConn;
-	--m_CurConn;
-
-	lock.unlock();
+	{
+		std::lock_guard<std::mutex> lockGuard(lock);
+		connList.push_back(con);
+		++m_FreeConn;
+		--m_CurConn;
+	}
 
 	reserve.post();
 	return true;
@@ -102,22 +100,21 @@ bool connection_pool::ReleaseConnection(MYSQL *con)
 //销毁数据库连接池
 void connection_pool::DestroyPool()
 {
-
-	lock.lock();
-	if (connList.size() > 0)
 	{
-		list<MYSQL *>::iterator it;
-		for (it = connList.begin(); it != connList.end(); ++it)
+		std::lock_guard<std::mutex> lockGuard(lock);
+		if (connList.size() > 0)
 		{
-			MYSQL *con = *it;
-			mysql_close(con);
+			list<MYSQL *>::iterator it;
+			for (it = connList.begin(); it != connList.end(); ++it)
+			{
+				MYSQL *con = *it;
+				mysql_close(con);
+			}
+			m_CurConn = 0;
+			m_FreeConn = 0;
+			connList.clear();
 		}
-		m_CurConn = 0;
-		m_FreeConn = 0;
-		connList.clear();
 	}
-
-	lock.unlock();
 }
 
 //当前空闲的连接数
