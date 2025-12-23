@@ -435,9 +435,10 @@ http_conn::HTTP_CODE http_conn::do_request()
 
             if (users.find(name) == users.end())
             {
+                int res = 0;
                 {
                     std::lock_guard<std::mutex> lock(m_lock);
-                    int res = mysql_query(mysql, sql_insert);
+                    res = mysql_query(mysql, sql_insert);
                     users.insert(std::pair<std::string, std::string>(name, password));
                 }
 
