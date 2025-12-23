@@ -11,6 +11,8 @@
 #include <pthread.h>
 #include <sys/time.h>
 #include <mutex>
+#include "../lock/locker.h"
+
 using namespace std;
 
 template <class T>

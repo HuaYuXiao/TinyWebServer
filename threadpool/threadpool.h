@@ -6,6 +6,7 @@
 #include <exception>
 #include <pthread.h>
 #include <mutex>
+#include "../lock/locker.h"
 #include "../CGImysql/sql_connection_pool.h"
 
 template <typename T>

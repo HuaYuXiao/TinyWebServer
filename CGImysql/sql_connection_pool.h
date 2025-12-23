@@ -9,6 +9,7 @@
 #include <iostream>
 #include <string>
 #include <mutex>
+#include "../lock/locker.h"
 #include "../log/log.h"
 
 using namespace std;
