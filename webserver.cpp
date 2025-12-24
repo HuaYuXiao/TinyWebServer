@@ -46,30 +46,10 @@ void WebServer::init(int port, string user, string passWord, string databaseName
 
 void WebServer::trig_mode()
 {
-    //LT + LT
-    if (0 == m_TRIGMode)
-    {
-        m_LISTENTrigmode = 0;
-        m_CONNTrigmode = 0;
-    }
-    //LT + ET
-    else if (1 == m_TRIGMode)
-    {
-        m_LISTENTrigmode = 0;
-        m_CONNTrigmode = 1;
-    }
-    //ET + LT
-    else if (2 == m_TRIGMode)
-    {
-        m_LISTENTrigmode = 1;
-        m_CONNTrigmode = 0;
-    }
-    //ET + ET
-    else if (3 == m_TRIGMode)
-    {
-        m_LISTENTrigmode = 1;
-        m_CONNTrigmode = 1;
-    }
+    // 高位（bit1） → m_LISTENTrigmode
+    m_LISTENTrigmode = m_TRIGMode >> 1;
+    // 低位（bit0） → m_CONNTrigmode
+    m_CONNTrigmode   = m_TRIGMode & 1;
 }
 
 void WebServer::log_write()
