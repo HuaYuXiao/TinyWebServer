@@ -5,7 +5,7 @@
 #include <iostream>
 #include <string>
 #include <stdarg.h>
-#include <pthread.h>
+#include <thread>
 #include <mutex>
 #include "block_queue.h"
 

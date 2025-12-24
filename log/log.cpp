@@ -3,7 +3,8 @@
 #include <sys/time.h>
 #include <stdarg.h>
 #include "log.h"
-#include <pthread.h>
+#include <thread>
+
 using namespace std;
 
 Log::Log()
@@ -14,6 +15,11 @@ Log::Log()
 
 Log::~Log()
 {
+    if (m_is_async && m_log_thread.joinable())
+    {
+        m_log_thread.join(); // Ensure the logging thread is properly joined
+    }
+
     if (m_fp != NULL)
     {
         fclose(m_fp);
@@ -27,9 +33,9 @@ bool Log::init(const char *file_name, int close_log, int log_buf_size, int split
     {
         m_is_async = true;
         m_log_queue = new block_queue<string>(max_queue_size);
-        pthread_t tid;
-        //flush_log_thread为回调函数,这里表示创建线程异步写日志
-        pthread_create(&tid, NULL, flush_log_thread, NULL);
+
+        // Create a thread for asynchronous logging using std::thread
+        m_log_thread = std::thread(flush_log_thread);
     }
     
     m_close_log = close_log;

@@ -4,9 +4,10 @@
 #include <deque>
 #include <cstdio>
 #include <exception>
-#include <pthread.h>
 #include <mutex>
 #include <memory>
+#include <thread>
+#include <vector>
 #include "../CGImysql/sql_connection_pool.h"
 
 template <typename T>
@@ -15,7 +16,7 @@ class threadpool
 public:
     /*thread_number是线程池中线程的数量，max_requests是请求队列中最多允许的、等待处理的请求的数量*/
     threadpool(int actor_model, connection_pool *connPool, int thread_number = 8, int max_request = 10000);
-    ~threadpool(){};
+    ~threadpool();
     bool append(T *request, int state);
     bool append_p(T *request);
 
@@ -27,7 +28,7 @@ private:
 private:
     int m_thread_number;        //线程池中的线程数
     int m_max_requests;         //请求队列中允许的最大请求数
-    std::unique_ptr<pthread_t[]> m_threads; //使用智能指针管理线程数组
+    std::vector<std::thread> m_threads; // Use std::thread for thread management
     std::deque<T *> m_workqueue; //请求队列
     std::mutex m_queuelocker;       //保护请求队列的互斥锁
     sem m_queuestat;            //是否有任务需要处理
@@ -41,16 +42,21 @@ threadpool<T>::threadpool(int actor_model, connection_pool *connPool, int thread
 {
     if (thread_number <= 0 || max_requests <= 0)
         throw std::exception();
-    m_threads = std::make_unique<pthread_t[]>(m_thread_number);
+
     for (int i = 0; i < thread_number; ++i)
     {
-        if (pthread_create(&m_threads[i], NULL, worker, this) != 0)
+        m_threads.emplace_back([this]() { this->run(); }); // Create threads using std::thread
+    }
+}
+
+template <typename T>
+threadpool<T>::~threadpool()
+{
+    for (std::thread &t : m_threads)
+    {
+        if (t.joinable())
         {
-            throw std::exception();
-        }
-        if (pthread_detach(m_threads[i]))
-        {
-            throw std::exception();
+            t.join();
         }
     }
 }

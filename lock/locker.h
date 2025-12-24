@@ -2,7 +2,7 @@
 #define LOCKER_H
 
 #include <exception>
-#include <pthread.h>
+#include <thread>
 #include <semaphore.h>
 #include <mutex>
 

@@ -4,7 +4,7 @@
 #include <string.h>
 #include <stdlib.h>
 #include <deque>
-#include <pthread.h>
+#include <thread>
 #include <iostream>
 #include <mutex>
 #include "sql_connection_pool.h"

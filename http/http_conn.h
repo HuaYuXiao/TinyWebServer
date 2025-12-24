@@ -11,7 +11,7 @@
 #include <assert.h>
 #include <sys/stat.h>
 #include <string.h>
-#include <pthread.h>
+#include <thread>
 #include <stdio.h>
 #include <stdlib.h>
 #include <sys/mman.h>

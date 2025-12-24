@@ -8,7 +8,7 @@
 
 #include <iostream>
 #include <stdlib.h>
-#include <pthread.h>
+#include <thread>
 #include <sys/time.h>
 #include <mutex>
 #include "../lock/locker.h"
