@@ -3,7 +3,7 @@
 WebServer::WebServer()
 {
     //http_conn类对象
-    users = new http_conn[MAX_FD];
+    users = std::make_unique<http_conn[]>(MAX_FD);
 
     //root文件夹路径
     char server_path[200];
@@ -14,7 +14,7 @@ WebServer::WebServer()
     strcat(m_root, root);
 
     //定时器
-    users_timer = new client_data[MAX_FD];
+    users_timer = std::make_unique<client_data[]>(MAX_FD);
 }
 
 WebServer::~WebServer()
@@ -23,9 +23,6 @@ WebServer::~WebServer()
     close(m_listenfd);
     close(m_pipefd[1]);
     close(m_pipefd[0]);
-    delete[] users;
-    delete[] users_timer;
-    delete m_pool;
 }
 
 void WebServer::init(int port, string user, string passWord, string databaseName, int log_write, 
@@ -77,7 +74,7 @@ void WebServer::sql_pool()
 void WebServer::thread_pool()
 {
     //线程池
-    m_pool = new threadpool<http_conn>(m_actormodel, m_connPool, m_thread_num);
+    m_pool = std::make_unique<threadpool<http_conn>>(m_actormodel, m_connPool, m_thread_num);
 }
 
 void WebServer::eventListen()
@@ -270,7 +267,7 @@ void WebServer::dealwithread(int sockfd)
         }
 
         //若监测到读事件，将该事件放入请求队列
-        m_pool->append(users + sockfd, 0);
+        m_pool->append(users.get() + sockfd, 0);
 
         while (true)
         {
@@ -294,7 +291,7 @@ void WebServer::dealwithread(int sockfd)
             LOG_INFO("deal with the client(%s)", inet_ntoa(users[sockfd].get_address()->sin_addr));
 
             //若监测到读事件，将该事件放入请求队列
-            m_pool->append_p(users + sockfd);
+            m_pool->append_p(users.get() + sockfd);
 
             if (timer)
             {
@@ -319,7 +316,7 @@ void WebServer::dealwithwrite(int sockfd)
             adjust_timer(timer);
         }
 
-        m_pool->append(users + sockfd, 1);
+        m_pool->append(users.get() + sockfd, 1);
 
         while (true)
         {

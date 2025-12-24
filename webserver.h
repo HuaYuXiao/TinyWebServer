@@ -11,6 +11,7 @@
 #include <stdlib.h>
 #include <cassert>
 #include <sys/epoll.h>
+#include <memory>
 
 #include "./threadpool/threadpool.h"
 #include "./http/http_conn.h"
@@ -53,7 +54,7 @@ public:
 
     int m_pipefd[2];
     int m_epollfd;
-    http_conn *users;
+    std::unique_ptr<http_conn[]> users;
 
     //数据库相关
     connection_pool *m_connPool;
@@ -63,7 +64,7 @@ public:
     int m_sql_num;
 
     //线程池相关
-    threadpool<http_conn> *m_pool;
+    std::unique_ptr<threadpool<http_conn>> m_pool;
     int m_thread_num;
 
     //epoll_event相关
@@ -76,7 +77,7 @@ public:
     int m_CONNTrigmode;
 
     //定时器相关
-    client_data *users_timer;
+    std::unique_ptr<client_data[]> users_timer;
     Utils utils;
 };
 #endif
