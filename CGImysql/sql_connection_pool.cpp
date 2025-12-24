@@ -3,7 +3,7 @@
 #include <string>
 #include <string.h>
 #include <stdlib.h>
-#include <list>
+#include <deque>
 #include <pthread.h>
 #include <iostream>
 #include <mutex>
@@ -33,7 +33,7 @@ void connection_pool::init(string url, string User, string PassWord, string DBNa
 	m_DatabaseName = DBName;
 	m_close_log = close_log;
 
-	for (int i = 0; i < MaxConn; i++)
+	for (int i = 0; i < MaxConn; ++i)
 	{
 		MYSQL *con = NULL;
 		con = mysql_init(con);
@@ -50,7 +50,7 @@ void connection_pool::init(string url, string User, string PassWord, string DBNa
 			LOG_ERROR("MySQL Error");
 			exit(1);
 		}
-		connList.push_back(con);
+		connList.emplace_back(con);
 		++m_FreeConn;
 	}
 
@@ -88,7 +88,7 @@ bool connection_pool::ReleaseConnection(MYSQL *con)
 
 	{
 		std::lock_guard<std::mutex> lockGuard(lock);
-		connList.push_back(con);
+		connList.emplace_back(con);
 		++m_FreeConn;
 		--m_CurConn;
 	}
@@ -104,10 +104,8 @@ void connection_pool::DestroyPool()
 		std::lock_guard<std::mutex> lockGuard(lock);
 		if (connList.size() > 0)
 		{
-			list<MYSQL *>::iterator it;
-			for (it = connList.begin(); it != connList.end(); ++it)
+			for (MYSQL* con : connList)
 			{
-				MYSQL *con = *it;
 				mysql_close(con);
 			}
 			m_CurConn = 0;

@@ -2,7 +2,7 @@
 #define _CONNECTION_POOL_
 
 #include <stdio.h>
-#include <list>
+#include <deque>
 #include <mysql/mysql.h>
 #include <error.h>
 #include <string.h>
@@ -35,7 +35,7 @@ private:
 	int m_CurConn;  //当前已使用的连接数
 	int m_FreeConn; //当前空闲的连接数
 	std::mutex lock;
-	list<MYSQL *> connList; //连接池
+	std::deque<MYSQL*> connList; //连接池
 	sem reserve;
 
 public:
