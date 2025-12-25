@@ -20,13 +20,17 @@ public:
 	MYSQL *GetConnection();				 //获取数据库连接
 	bool ReleaseConnection(MYSQL *conn); //释放连接
 	int GetFreeConn();					 //获取连接
-	void DestroyPool();					 //销毁所有连接
 
 	//单例模式
 	static connection_pool *GetInstance();
 
-	void init(string url, string User, string PassWord, string DataBaseName, int Port, int MaxConn, int close_log); 
-
+	void connection_pool::init(const string& url, 
+							const string& User, 
+							const string& PassWord, 
+							const string& DBName, 
+							int Port, 
+							int MaxConn, 
+							int close_log);
 private:
 	connection_pool();
 	~connection_pool();
@@ -36,7 +40,7 @@ private:
 	int m_FreeConn; //当前空闲的连接数
 	std::mutex lock;
 	std::deque<MYSQL*> connList; //连接池
-	sem reserve;
+	sem semaphore_;
 
 public:
 	string m_url;			 //主机地址
@@ -50,7 +54,7 @@ public:
 class connectionRAII{
 
 public:
-	connectionRAII(MYSQL **con, connection_pool *connPool);
+	connectionRAII(MYSQL **mysql_conn, connection_pool *connPool);
 	~connectionRAII();
 	
 private:

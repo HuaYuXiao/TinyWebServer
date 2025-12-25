@@ -27,7 +27,7 @@ public:
     ~WebServer();
 
     void init(int port , string user, string passWord, string databaseName,
-              int log_write , int opt_linger, int trigmode, int sql_num,
+              int log_write, int opt_linger, int trigmode, int sql_num,
               int thread_num, int close_log, int actor_model);
 
     void thread_pool();
@@ -57,6 +57,7 @@ public:
     std::unique_ptr<http_conn[]> users;
 
     //数据库相关
+    // 管理与数据库的连接，提供高效的数据库访问支持。
     connection_pool *m_connPool;
     string m_user;         //登陆数据库用户名
     string m_passWord;     //登陆数据库密码

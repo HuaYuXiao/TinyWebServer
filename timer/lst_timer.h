@@ -25,6 +25,7 @@
 
 class util_timer;
 
+// 面向网络层，存储每个客户端连接的相关数据，包括客户端地址、套接字描述符、定时器等。
 struct client_data
 {
     sockaddr_in address;

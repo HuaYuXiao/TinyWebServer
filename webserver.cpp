@@ -5,7 +5,7 @@ WebServer::WebServer()
     //http_conn类对象
     users = std::make_unique<http_conn[]>(MAX_FD);
 
-    //root文件夹路径
+    // root文件夹用于存放服务器的静态资源文件（如HTML、图片等）。
     char server_path[200];
     getcwd(server_path, 200);
     char root[6] = "/root";
