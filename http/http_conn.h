@@ -100,6 +100,12 @@ public:
     int timer_flag;
     int improv;
 
+    static int m_user_count; // Make m_user_count public
+    static int m_epollfd;    // Make m_epollfd public
+
+    int m_state;             // Make m_state public
+    MYSQL* mysql;            // Make mysql public
+
 private:
     // Private Methods
     void init();
@@ -122,14 +128,7 @@ private:
     bool add_blank_line();
 
 private:
-    // Static Members
-    static int m_epollfd;
-    static int m_user_count;
-
     // Private Members
-    MYSQL *mysql;
-    int m_state; // Read = 0, Write = 1
-
     int m_sockfd;
     sockaddr_in m_address;
 
