@@ -35,7 +35,7 @@ bool Log::init(const char *file_name, int close_log, int log_buf_size, int split
         m_log_queue = new block_queue<string>(max_queue_size);
 
         // Create a thread for asynchronous logging using std::thread
-        m_log_thread = std::thread(flush_log_thread);
+        m_log_thread = std::thread(flush_log_thread, nullptr);
     }
     
     m_close_log = close_log;
