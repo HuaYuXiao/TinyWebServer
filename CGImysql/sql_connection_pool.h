@@ -24,13 +24,13 @@ public:
 	//单例模式
 	static connection_pool *GetInstance();
 
-	void connection_pool::init(const string& url, 
-							const string& User, 
-							const string& PassWord, 
-							const string& DBName, 
-							int Port, 
-							int MaxConn, 
-							int close_log);
+	void init(const string& url, 
+			const string& User, 
+			const string& PassWord, 
+			const string& DBName, 
+			int Port, 
+			int MaxConn, 
+			int close_log);
 private:
 	connection_pool();
 	~connection_pool();
