@@ -20,11 +20,12 @@ Log::~Log()
         m_log_thread.join(); // Ensure the logging thread is properly joined
     }
 
-    if (m_fp != NULL)
+    if (m_fp)
     {
         fclose(m_fp);
     }
 }
+
 //异步需要设置阻塞队列的长度，同步不需要设置
 bool Log::init(const char *file_name, int close_log, int log_buf_size, int split_lines, int max_queue_size)
 {
@@ -34,8 +35,8 @@ bool Log::init(const char *file_name, int close_log, int log_buf_size, int split
         m_is_async = true;
         m_log_queue = new block_queue<string>(max_queue_size);
 
-        // Create a thread for asynchronous logging using std::thread
-        m_log_thread = std::thread(flush_log_thread, nullptr);
+        // Create a thread for asynchronous logging
+        m_log_thread = std::thread(flush_log_thread);
     }
     
     m_close_log = close_log;
@@ -48,11 +49,10 @@ bool Log::init(const char *file_name, int close_log, int log_buf_size, int split
     struct tm *sys_tm = localtime(&t);
     struct tm my_tm = *sys_tm;
 
- 
     const char *p = strrchr(file_name, '/');
     char log_full_name[256] = {0};
 
-    if (p == NULL)
+    if (!p)
     {
         snprintf(log_full_name, 255, "%d_%02d_%02d_%s", my_tm.tm_year + 1900, my_tm.tm_mon + 1, my_tm.tm_mday, file_name);
     }
@@ -66,8 +66,7 @@ bool Log::init(const char *file_name, int close_log, int log_buf_size, int split
     m_today = my_tm.tm_mday;
     
     m_fp = fopen(log_full_name, "a");
-    if (m_fp == NULL)
-    {
+    if (!m_fp){
         return false;
     }
 
