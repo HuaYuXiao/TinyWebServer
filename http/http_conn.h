@@ -93,7 +93,7 @@ public:
     void process();
     bool read_once();
     bool write();
-    sockaddr_in *get_address();
+    sockaddr_in *get_address() { return &m_address; }
     static void initmysql_result(connection_pool *connPool);
 
     // Public Members
