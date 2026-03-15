@@ -9,10 +9,12 @@
 #include <iostream>
 #include <string>
 #include <mutex>
-#include "../lock/locker.h"
+#include <semaphore>
 #include "../log/log.h"
 
 using namespace std;
+
+const int MAX_CONN = 10000; // 最大信号量值
 
 class connection_pool
 {
@@ -40,7 +42,7 @@ private:
 	int m_FreeConn; //当前空闲的连接数
 	std::mutex lock;
 	std::deque<MYSQL*> connList; //连接池
-	sem semaphore_;
+	std::counting_semaphore<MAX_CONN> semaphore_{0};
 
 public:
 	string m_url;			 //主机地址

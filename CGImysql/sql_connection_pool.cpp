@@ -67,7 +67,7 @@ void connection_pool::init(const string& url,
 		++m_FreeConn;
 	}
 
-	semaphore_ = sem(m_FreeConn);
+	semaphore_.release(m_FreeConn);
 
 	m_MaxConn = m_FreeConn;
 }
@@ -84,7 +84,7 @@ MYSQL *connection_pool::GetConnection() {
 	若当前计数 > 0，计数会减 1（表示一个空闲连接被占用）；
 	若计数 = 0（无空闲连接），线程会阻塞等待，直到计数 > 0 再执行减 1 操作。
 	*/
-	semaphore_.wait();
+	semaphore_.acquire();
 	{
 		std::lock_guard<std::mutex> lockGuard(lock);
 		mysql_conn = connList.front();
@@ -112,7 +112,7 @@ bool connection_pool::ReleaseConnection(MYSQL *mysql_conn){
 	无论当前计数是多少，都会强制加 1（表示空闲连接数增加），
 	若有线程因计数为 0 而阻塞等待，会被唤醒并尝试获取连接。
 	*/
-	semaphore_.post();
+	semaphore_.release();
 
 	return true;
 }
