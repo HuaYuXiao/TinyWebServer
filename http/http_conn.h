@@ -76,8 +76,8 @@ public:
     在WebServer中，http_conn对象是以数组的形式批量分配的（大小为65536）。
     如果在构造函数中初始化每个对象，会导致大量不必要的初始化操作，因为并不是所有对象都会被立即使用。
     */ 
-    http_conn();
-    ~http_conn();
+    http_conn() = default;
+    ~http_conn() = default;
 
     // Public Methods
     /*
