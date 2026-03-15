@@ -6,9 +6,12 @@
 #include <exception>
 #include <mutex>
 #include <memory>
+#include <semaphore>
 #include <thread>
 #include <vector>
 #include "../CGImysql/sql_connection_pool.h"
+
+static constexpr int THREADPOOL_MAX_SEM = 100000;
 
 template <typename T>
 class threadpool
@@ -30,10 +33,10 @@ private:
     int m_max_requests;         //请求队列中允许的最大请求数
     std::vector<std::thread> m_threads; // Use std::thread for thread management
     std::deque<T *> m_workqueue; //请求队列
-    std::mutex m_queuelocker;       //保护请求队列的互斥锁
-    sem m_queuestat;            //是否有任务需要处理
-    connection_pool *m_connPool;  //数据库
-    int m_actor_model;          //模型切换
+    std::mutex m_queuelocker;       // 保护请求队列的互斥锁
+    std::counting_semaphore<THREADPOOL_MAX_SEM> m_queuestat{0}; // 是否有任务需要处理
+    connection_pool *m_connPool;  // 数据库
+    int m_actor_model;          // 模型切换
 };
 
 template <typename T>
@@ -73,7 +76,7 @@ bool threadpool<T>::append(T *request, int state)
         request->m_state = state;
         m_workqueue.emplace_back(request);
     }
-    m_queuestat.post();
+    m_queuestat.release();
     return true;
 }
 
@@ -88,7 +91,7 @@ bool threadpool<T>::append_p(T *request)
         }
         m_workqueue.emplace_back(request);
     }
-    m_queuestat.post();
+    m_queuestat.release();
     return true;
 }
 
@@ -105,7 +108,7 @@ void threadpool<T>::run()
 {
     while (true)
     {
-        m_queuestat.wait();
+        m_queuestat.acquire();
         T *request = nullptr;
         {
             std::lock_guard<std::mutex> lock(m_queuelocker);
