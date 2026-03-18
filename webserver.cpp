@@ -108,7 +108,8 @@ void WebServer::eventListen()
     // 创建 epoll 实例，用于统一监听 I/O 事件和信号事件，实现统一事件源
     // epoll 是 Linux 下的高效 I/O 多路复用机制，可以同时监听多个文件描述符的事件
     epoll_event events[MAX_EVENT_NUMBER];
-    m_epollfd = epoll_create();
+    // 防止 fd 在 fork + exec 时被子进程继承
+    m_epollfd = epoll_create1(EPOLL_CLOEXEC);
     assert(m_epollfd != -1);
 
     // 将监听套接字添加到 epoll 中，监听新连接事件（EPOLLIN）
