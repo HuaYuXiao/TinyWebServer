@@ -76,11 +76,13 @@ void WebServer::eventListen()
     //优雅关闭连接
     if (0 == m_OPT_LINGER)
     {
+        // close 立即返回，丢弃未发送数据
         struct linger tmp = {0, 1};
         setsockopt(m_listenfd, SOL_SOCKET, SO_LINGER, &tmp, sizeof(tmp));
     }
     else if (1 == m_OPT_LINGER)
     {
+        // 阻塞最多1秒发送剩余数据
         struct linger tmp = {1, 1};
         setsockopt(m_listenfd, SOL_SOCKET, SO_LINGER, &tmp, sizeof(tmp));
     }
@@ -89,38 +91,49 @@ void WebServer::eventListen()
     struct sockaddr_in address;
     bzero(&address, sizeof(address));
     address.sin_family = AF_INET;
+    // 监听所有网卡
     address.sin_addr.s_addr = htonl(INADDR_ANY);
     address.sin_port = htons(m_port);
 
     int flag = 1;
+    // 避免 TIME_WAIT 导致端口无法快速复用
     setsockopt(m_listenfd, SOL_SOCKET, SO_REUSEADDR, &flag, sizeof(flag));
     ret = bind(m_listenfd, (struct sockaddr *)&address, sizeof(address));
     assert(ret >= 0);
-    ret = listen(m_listenfd, 5);
+    ret = listen(m_listenfd, 4096);
     assert(ret >= 0);
 
     utils.init(TIMESLOT);
 
-    //epoll创建内核事件表
+    // 创建 epoll 实例，用于统一监听 I/O 事件和信号事件，实现统一事件源
+    // epoll 是 Linux 下的高效 I/O 多路复用机制，可以同时监听多个文件描述符的事件
     epoll_event events[MAX_EVENT_NUMBER];
-    m_epollfd = epoll_create(5);
+    m_epollfd = epoll_create();
     assert(m_epollfd != -1);
 
+    // 将监听套接字添加到 epoll 中，监听新连接事件（EPOLLIN）
     utils.addfd(m_epollfd, m_listenfd, false);
     http_conn::m_epollfd = m_epollfd;
 
+    // 使用 socketpair 创建一对 UNIX 域套接字，用于将异步信号转换为同步 epoll 事件
+    // 这样可以将信号处理统一到 epoll 的事件循环中，避免复杂的异步信号处理
     ret = socketpair(PF_UNIX, SOCK_STREAM, 0, m_pipefd);
     assert(ret != -1);
+    // 设置管道写端为非阻塞，避免信号处理阻塞
     utils.setNonBlocking(m_pipefd[1]);
+    // 将管道读端添加到 epoll 中，监听信号事件（通过管道传递）
     utils.addfd(m_epollfd, m_pipefd[0], false);
 
+    // 注册信号处理器：忽略 SIGPIPE（防止管道破裂导致程序崩溃）
     utils.addsig(SIGPIPE, SIG_IGN);
+    // 注册 SIGALRM 和 SIGTERM 信号处理器，当信号到达时，将信号写入管道
     utils.addsig(SIGALRM, utils.sig_handler, false);
     utils.addsig(SIGTERM, utils.sig_handler, false);
 
+    // 设置定时器，每 TIMESLOT 秒触发一次 SIGALRM，用于定时任务（如清理超时连接）
     alarm(TIMESLOT);
 
-    //工具类,信号和描述符基础操作
+    // 设置工具类的全局管道和 epoll 描述符，便于信号处理器访问
     Utils::u_pipefd = m_pipefd;
     Utils::u_epollfd = m_epollfd;
 }
