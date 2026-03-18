@@ -28,7 +28,7 @@ public:
 
     void init(int port , string user, string passWord, string databaseName,
               int log_write, int opt_linger, int sql_num,
-              int thread_num, int close_log, int actor_model);
+              int thread_num, int close_log);
 
     void thread_pool();
     void sql_pool();
@@ -49,13 +49,11 @@ public:
     char *m_root;
     int m_log_write;
     int m_close_log;
-    int m_actormodel;
 
     int m_pipefd[2];
     int m_epollfd;
     std::unique_ptr<http_conn[]> users;
 
-    //数据库相关
     // 管理与数据库的连接，提供高效的数据库访问支持。
     connection_pool *m_connPool;
     string m_user;         //登陆数据库用户名

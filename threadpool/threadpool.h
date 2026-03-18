@@ -18,9 +18,8 @@ class threadpool
 {
 public:
     /*thread_number是线程池中线程的数量，max_requests是请求队列中最多允许的、等待处理的请求的数量*/
-    threadpool(int actor_model, connection_pool *connPool, int thread_number = 8, int max_request = 10000);
+    threadpool(connection_pool *connPool, int thread_number = 8, int max_request = 10000);
     ~threadpool();
-    bool append(T *request, int state);
     bool append_p(T *request);
 
 private:
@@ -36,12 +35,11 @@ private:
     std::mutex m_queuelocker;       // 保护请求队列的互斥锁
     std::counting_semaphore<THREADPOOL_MAX_SEM> m_queuestat{0}; // 是否有任务需要处理
     connection_pool *m_connPool;  // 数据库
-    int m_actor_model;          // 模型切换
 };
 
 template <typename T>
-threadpool<T>::threadpool(int actor_model, connection_pool *connPool, int thread_number, int max_requests)
-    : m_actor_model(actor_model), m_thread_number(thread_number), m_max_requests(max_requests), m_connPool(connPool)
+threadpool<T>::threadpool(connection_pool *connPool, int thread_number, int max_requests)
+    : m_thread_number(thread_number), m_max_requests(max_requests), m_connPool(connPool)
 {
     if (thread_number <= 0 || max_requests <= 0)
         throw std::exception();
@@ -62,22 +60,6 @@ threadpool<T>::~threadpool()
             t.join();
         }
     }
-}
-
-template <typename T>
-bool threadpool<T>::append(T *request, int state)
-{
-    {
-        std::lock_guard<std::mutex> lock(m_queuelocker);
-        if (m_workqueue.size() >= m_max_requests)
-        {
-            return false;
-        }
-        request->m_state = state;
-        m_workqueue.emplace_back(request);
-    }
-    m_queuestat.release();
-    return true;
 }
 
 template <typename T>
@@ -123,40 +105,10 @@ void threadpool<T>::run()
         {
             continue;
         }
-        if (1 == m_actor_model)
-        {
-            if (0 == request->m_state)
-            {
-                if (request->read_once())
-                {
-                    request->improv = 1;
-                    connectionRAII mysqlcon(&request->mysql, m_connPool);
-                    request->process();
-                }
-                else
-                {
-                    request->improv = 1;
-                    request->timer_flag = 1;
-                }
-            }
-            else
-            {
-                if (request->write())
-                {
-                    request->improv = 1;
-                }
-                else
-                {
-                    request->improv = 1;
-                    request->timer_flag = 1;
-                }
-            }
-        }
-        else
-        {
-            connectionRAII mysqlcon(&request->mysql, m_connPool);
-            request->process();
-        }
+
+        // Proactor: 直接处理已完成读操作的请求
+        connectionRAII mysqlcon(&request->mysql, m_connPool);
+        request->process();
     }
 }
 

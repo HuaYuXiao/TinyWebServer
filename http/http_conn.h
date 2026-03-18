@@ -97,13 +97,9 @@ public:
     static void initmysql_result(connection_pool *connPool);
 
     // Public Members
-    int timer_flag;
-    int improv;
-
     static int m_user_count; // Make m_user_count public
     static int m_epollfd;    // Make m_epollfd public
 
-    int m_state;             // Make m_state public
     MYSQL* mysql;            // Make mysql public
 
 private:

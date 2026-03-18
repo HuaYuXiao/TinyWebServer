@@ -93,57 +93,55 @@ Demo演示
 	* Chrome
 	* 其他浏览器暂无测试
 
-* 测试前确认已安装MySQL数据库
+```SQL
+// 建立server库
+create database server;
 
-    ```C++
-    // 建立server库
-    create database server;
+// 创建user表
+USE server;
+CREATE TABLE user(
+    username char(50) NULL,
+    passwd char(50) NULL
+)ENGINE=InnoDB;
 
-    // 创建user表
-    USE server;
-    CREATE TABLE user(
-        username char(50) NULL,
-        passwd char(50) NULL
-    )ENGINE=InnoDB;
-
-    // 添加数据
-    INSERT INTO user(username, passwd) VALUES('name', 'passwd');
-    ```
+// 添加数据
+INSERT INTO user(username, passwd) VALUES('name', 'passwd');
+```
 
 * 修改main.cpp中的数据库初始化信息
 
-    ```C++
-    //数据库登录名,密码,库名
-    string user = "root";
-    string passwd = "root";
-    string databasename = "server";
-    ```
+```C++
+//数据库登录名,密码,库名
+string user = "root";
+string passwd = "root";
+string databasename = "server";
+```
 
 * build
 
-    ```bash
-    mkdir build && cd build
-    cmake ..
-    make
-    ```
+```bash
+mkdir build && cd build
+cmake ..
+make
+```
 
 * 启动server
 
-    ```bash
-    ./server
-    ```
+```bash
+./server
+```
 
 * 浏览器端
 
-    ```C++
-    ip:9006
-    ```
+```
+ip:9006
+```
 
 个性化运行
 ------
 
 ```bash
-./server [-p port] [-l LOGWrite] [-o OPT_LINGER] [-s sql_num] [-t thread_num] [-c close_log] [-a actor_model]
+./server [-p port] [-l LOGWrite] [-o OPT_LINGER] [-s sql_num] [-t thread_num] [-c close_log]
 ```
 
 温馨提示:以上参数不是非必须，不用全部使用，根据个人情况搭配选用即可.
@@ -163,14 +161,11 @@ Demo演示
 * -c，关闭日志，默认打开
 	* 0，打开日志
 	* 1，关闭日志
-* -a，选择反应堆模型，默认Proactor
-	* 0，Proactor模型
-	* 1，Reactor模型
 
 测试示例命令与含义
 
 ```bash
-./server -p 9007 -l 1 -o 1 -s 10 -t 10 -c 1 -a 1
+./server -p 9007 -l 1 -o 1 -s 10 -t 10 -c 1
 ```
 
 - [x] 端口9007
@@ -179,7 +174,6 @@ Demo演示
 - [x] 数据库连接池内有10条连接
 - [x] 线程池内有10条线程
 - [x] 关闭日志
-- [x] Reactor反应堆模型
 
 庖丁解牛
 ------------
