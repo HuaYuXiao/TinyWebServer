@@ -27,13 +27,12 @@ public:
     ~WebServer();
 
     void init(int port , string user, string passWord, string databaseName,
-              int log_write, int opt_linger, int trigmode, int sql_num,
+              int log_write, int opt_linger, int sql_num,
               int thread_num, int close_log, int actor_model);
 
     void thread_pool();
     void sql_pool();
     void log_write();
-    void trig_mode();
     void eventListen();
     void eventLoop();
     void timer(int connfd, struct sockaddr_in client_address);
@@ -73,9 +72,6 @@ public:
 
     int m_listenfd;
     int m_OPT_LINGER;
-    int m_TRIGMode;
-    int m_LISTENTrigmode;
-    int m_CONNTrigmode;
 
     //定时器相关
     std::unique_ptr<client_data[]> users_timer;

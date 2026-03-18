@@ -7,15 +7,6 @@ Config::Config(){
     //日志写入方式，默认同步
     LOGWrite = 0;
 
-    //触发组合模式,默认listenfd LT + connfd LT
-    TRIGMode = 0;
-
-    //listenfd触发模式，默认LT
-    LISTENTrigmode = 0;
-
-    //connfd触发模式，默认LT
-    CONNTrigmode = 0;
-
     //优雅关闭链接，默认不使用
     OPT_LINGER = 0;
 
@@ -34,7 +25,7 @@ Config::Config(){
 
 void Config::parse_arg(int argc, char*argv[]){
     int opt;
-    const char *str = "p:l:m:o:s:t:c:a:";
+    const char *str = "p:l:o:s:t:c:a:";
     while ((opt = getopt(argc, argv, str)) != -1)
     {
         switch (opt)
@@ -47,11 +38,6 @@ void Config::parse_arg(int argc, char*argv[]){
         case 'l':
         {
             LOGWrite = atoi(optarg);
-            break;
-        }
-        case 'm':
-        {
-            TRIGMode = atoi(optarg);
             break;
         }
         case 'o':

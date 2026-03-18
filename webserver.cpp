@@ -26,7 +26,7 @@ WebServer::~WebServer()
 }
 
 void WebServer::init(int port, string user, string passWord, string databaseName, int log_write, 
-                     int opt_linger, int trigmode, int sql_num, int thread_num, int close_log, int actor_model)
+                     int opt_linger, int sql_num, int thread_num, int close_log, int actor_model)
 {
     m_port = port;
     m_user = user;
@@ -36,17 +36,8 @@ void WebServer::init(int port, string user, string passWord, string databaseName
     m_thread_num = thread_num;
     m_log_write = log_write;
     m_OPT_LINGER = opt_linger;
-    m_TRIGMode = trigmode;
     m_close_log = close_log;
     m_actormodel = actor_model;
-}
-
-void WebServer::trig_mode()
-{
-    // 高位（bit1） → m_LISTENTrigmode
-    m_LISTENTrigmode = m_TRIGMode >> 1;
-    // 低位（bit0） → m_CONNTrigmode
-    m_CONNTrigmode   = m_TRIGMode & 1;
 }
 
 void WebServer::log_write()
@@ -116,13 +107,13 @@ void WebServer::eventListen()
     m_epollfd = epoll_create(5);
     assert(m_epollfd != -1);
 
-    utils.addfd(m_epollfd, m_listenfd, false, m_LISTENTrigmode);
+    utils.addfd(m_epollfd, m_listenfd, false);
     http_conn::m_epollfd = m_epollfd;
 
     ret = socketpair(PF_UNIX, SOCK_STREAM, 0, m_pipefd);
     assert(ret != -1);
-    utils.setnonblocking(m_pipefd[1]);
-    utils.addfd(m_epollfd, m_pipefd[0], false, 0);
+    utils.setNonBlocking(m_pipefd[1]);
+    utils.addfd(m_epollfd, m_pipefd[0], false);
 
     utils.addsig(SIGPIPE, SIG_IGN);
     utils.addsig(SIGALRM, utils.sig_handler, false);
@@ -137,7 +128,7 @@ void WebServer::eventListen()
 
 void WebServer::timer(int connfd, struct sockaddr_in client_address)
 {
-    users[connfd].init(connfd, client_address, m_root, m_CONNTrigmode, m_close_log, m_user, m_passWord, m_databaseName);
+    users[connfd].init(connfd, client_address, m_root, m_close_log, m_user, m_passWord, m_databaseName);
 
     //初始化client_data数据
     //创建定时器，设置回调函数和超时时间，绑定用户数据，将定时器添加到链表中
@@ -178,43 +169,18 @@ bool WebServer::dealclientdata()
 {
     struct sockaddr_in client_address;
     socklen_t client_addrlength = sizeof(client_address);
-    if (0 == m_LISTENTrigmode)
-    {
-        int connfd = accept(m_listenfd, (struct sockaddr *)&client_address, &client_addrlength);
-        if (connfd < 0)
-        {
-            LOG_ERROR("%s:errno is:%d", "accept error", errno);
-            return false;
-        }
-        if (http_conn::m_user_count >= MAX_FD)
-        {
-            utils.show_error(connfd, "Internal server busy");
-            LOG_ERROR("%s", "Internal server busy");
-            return false;
-        }
-        timer(connfd, client_address);
-    }
 
-    else
+    int connfd = accept(m_listenfd, (struct sockaddr *)&client_address, &client_addrlength);
+    if (connfd < 0)
     {
-        while (1)
-        {
-            int connfd = accept(m_listenfd, (struct sockaddr *)&client_address, &client_addrlength);
-            if (connfd < 0)
-            {
-                LOG_ERROR("%s:errno is:%d", "accept error", errno);
-                break;
-            }
-            if (http_conn::m_user_count >= MAX_FD)
-            {
-                utils.show_error(connfd, "Internal server busy");
-                LOG_ERROR("%s", "Internal server busy");
-                break;
-            }
-            timer(connfd, client_address);
-        }
+        LOG_ERROR("%s:errno is:%d", "accept error", errno);
         return false;
     }
+    if (http_conn::m_user_count >= MAX_FD)
+    {
+        return false;
+    }
+    timer(connfd, client_address);
     return true;
 }
 

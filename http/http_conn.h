@@ -88,7 +88,7 @@ public:
     通过init方法延迟初始化，
     可以在资源确定后再完成初始化。
     */
-    void init(int sockfd, const sockaddr_in &addr, char *doc_root, int TRIGMode, int close_log, std::string user, std::string passwd, std::string sqlname);
+    void init(int sockfd, const sockaddr_in &addr, char *doc_root, int close_log, std::string user, std::string passwd, std::string sqlname);
     void close_conn(bool real_close = true);
     void process();
     bool read_once();
@@ -162,7 +162,6 @@ private:
     char *doc_root;
 
     std::map<std::string, std::string> m_users;
-    int m_TRIGMode;
     int m_close_log;
 
     char sql_user[100];

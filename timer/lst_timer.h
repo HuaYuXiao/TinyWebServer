@@ -74,10 +74,10 @@ public:
     void init(int timeslot);
 
     //对文件描述符设置非阻塞
-    int setnonblocking(int fd);
+    int setNonBlocking(int fd);
 
-    //将内核事件表注册读事件，ET模式，选择开启EPOLLONESHOT
-    void addfd(int epollfd, int fd, bool one_shot, int TRIGMode);
+    //将内核事件表注册读事件（LT 模式），可选择开启 EPOLLONESHOT
+    void addfd(int epollfd, int fd, bool one_shot);
 
     //信号处理函数
     static void sig_handler(int sig);
