@@ -1,6 +1,6 @@
 # This starter workflow is for a CMake project running on a single platform. There is a different starter workflow if you need cross-platform coverage.
 # See: https://github.com/actions/starter-workflows/blob/main/ci/cmake-multi-platform.yml
-name: CMake on a single platform
+name: CMake on ubuntu 24.04
 
 on:
   push:
@@ -22,6 +22,13 @@ jobs:
     steps:
     - uses: actions/checkout@v4
 
+    - name: Configure
+      run: |
+        mkdir -p build
+        cd build
+        cmake .. -DCMAKE_BUILD_TYPE=${{ env.BUILD_TYPE }}
+
     - name: Build
-      # Build your program with the given configuration
-      run: make server
+      run: |
+        cd build
+        cmake --build . --config ${{ env.BUILD_TYPE }}

@@ -86,7 +86,7 @@ Demo演示
 快速运行
 ------------
 * 服务器测试环境
-	* Ubuntu版本22.04
+	* Ubuntu版本24.04
 	* MySQL版本8.4
 * 浏览器测试环境
 	* Windows、Linux均可
@@ -122,7 +122,9 @@ Demo演示
 * build
 
     ```bash
-    make server
+    mkdir build && cd build
+    cmake ..
+    make
     ```
 
 * 启动server
