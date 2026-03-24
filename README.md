@@ -42,36 +42,14 @@ Linux下C++轻量级Web服务器，助力初学者快速实践网络编程，搭
 多线程同步，确保任一时刻只能有一个线程能进入关键代码段.
 > * 信号量
 > * 互斥锁
-> * 条件变量
 
 框架
 -------------
 <div align=center><img src="http://ww1.sinaimg.cn/large/005TJ2c7ly1ge0j1atq5hj30g60lm0w4.jpg" height="765"/> </div>
 
-Demo演示
-----------
-> * 注册演示
-
-<div align=center><img src="http://ww1.sinaimg.cn/large/005TJ2c7ly1ge0iz0dkleg30m80bxjyj.gif" height="429"/> </div>
-
-> * 登录演示
-
-<div align=center><img src="https://github.com/qinguoyi/TinyWebServer/blob/master/root/login.gif" height="429"/> </div>
-
-> * 请求图片文件演示(6M)
-
-<div align=center><img src="http://ww1.sinaimg.cn/large/005TJ2c7ly1ge0juxrnlfg30go07x4qr.gif" height="429"/> </div>
-
-> * 请求视频文件演示(39M)
-
-<div align=center><img src="http://ww1.sinaimg.cn/large/005TJ2c7ly1ge0jtxie8ng30go07xb2b.gif" height="429"/> </div>
-
-
 压力测试
 -------------
-在关闭日志后，使用Webbench对服务器进行压力测试，对listenfd和connfd均采用LT模式，均可实现上万的并发连接，下面是测试结果. 
-
-> * Proactor，LT + LT，93251 QPS
+在关闭日志后，使用Webbench对服务器进行压力测试，对listenfd和connfd均采用LT模式，可实现上万的并发连接，下面是测试结果. 
 
 <div align=center><img src="http://ww1.sinaimg.cn/large/005TJ2c7ly1gfjqu2hptkj30gz07474n.jpg" height="201"/> </div>
 
@@ -79,19 +57,14 @@ Demo演示
 > * 访问服务器时间：5s
 > * 所有访问均成功
 
-源码下载
--------
-目前有两个版本，版本间的代码结构有较大改动，文档和代码运行方法也不一致。重构版本更简洁，原始版本(raw_version)更大保留游双代码的原汁原味，从原始版本更容易入手.
-
 快速运行
 ------------
 * 服务器测试环境
-	* Ubuntu版本24.04
-	* MySQL版本8.4
+	* Ubuntu 24.04
+	* MySQL 8.4
 * 浏览器测试环境
-	* Windows、Linux均可
+	* Windows、Linux
 	* Chrome
-	* 其他浏览器暂无测试
 
 ```SQL
 // 建立server库
@@ -193,7 +166,6 @@ ip:9006
 * [最新版Web服务器项目详解 - 11 数据库连接池](https://mp.weixin.qq.com/s?__biz=MzAxNzU2MzcwMw==&mid=2649274326&idx=1&sn=5af78e2bf6552c46ae9ab2aa22faf839&chksm=83ffbe8eb4883798c3abb82ddd124c8100a39ef41ab8d04abe42d344067d5e1ac1b0cac9d9a3&token=1450918099&lang=zh_CN#rd)
 * [最新版Web服务器项目详解 - 12 注册登录](https://mp.weixin.qq.com/s?__biz=MzAxNzU2MzcwMw==&mid=2649274431&idx=4&sn=7595a70f06a79cb7abaebcd939e0cbee&chksm=83ffb167b4883871ce110aeb23e04acf835ef41016517247263a2c3ab6f8e615607858127ea6&token=1686112912&lang=zh_CN#rd)
 * [最新版Web服务器项目详解 - 13 踩坑与面试题](https://mp.weixin.qq.com/s?__biz=MzAxNzU2MzcwMw==&mid=2649274431&idx=1&sn=2dd28c92f5d9704a57c001a3d2630b69&chksm=83ffb167b48838715810b27b8f8b9a576023ee5c08a8e5d91df5baf396732de51268d1bf2a4e&token=1686112912&lang=zh_CN#rd)
-* 已更新完毕
 
 致谢
 ------------
