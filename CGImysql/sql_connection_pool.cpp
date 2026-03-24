@@ -72,19 +72,15 @@ void connection_pool::init(const string& url,
 	m_MaxConn = m_FreeConn;
 }
 
-//当有请求时，从数据库连接池中返回一个可用连接，更新使用和空闲连接数
+// 当有请求时，从数据库连接池中返回一个可用连接，更新使用和空闲连接数
 MYSQL *connection_pool::GetConnection() {
-	if (connList.empty()){
-		return NULL;
-	}
-
-	MYSQL *mysql_conn = NULL;
-
 	/*
-	若当前计数 > 0，计数会减 1（表示一个空闲连接被占用）；
-	若计数 = 0（无空闲连接），线程会阻塞等待，直到计数 > 0 再执行减 1 操作。
+	依赖信号量来保证只有在有可用连接时执行，
+	否则阻塞等待，不需要自己判断 connList.empty()
 	*/
 	semaphore_.acquire();
+
+	MYSQL *mysql_conn = nullptr;
 	{
 		std::lock_guard<std::mutex> lockGuard(lock);
 		mysql_conn = connList.front();
@@ -93,6 +89,7 @@ MYSQL *connection_pool::GetConnection() {
 		--m_FreeConn;
 		++m_CurConn;
 	}
+
 	return mysql_conn;
 }
 
@@ -115,11 +112,6 @@ bool connection_pool::ReleaseConnection(MYSQL *mysql_conn){
 	semaphore_.release();
 
 	return true;
-}
-
-//当前空闲的连接数
-int connection_pool::GetFreeConn() {
-    return m_FreeConn;
 }
 
 connection_pool::~connection_pool() {

@@ -21,7 +21,6 @@ class connection_pool
 public:
 	MYSQL *GetConnection();				 //获取数据库连接
 	bool ReleaseConnection(MYSQL *conn); //释放连接
-	int GetFreeConn();					 //获取连接
 
 	//单例模式
 	static connection_pool *GetInstance();
