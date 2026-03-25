@@ -6,12 +6,8 @@ WebServer::WebServer()
     users = std::make_unique<http_conn[]>(MAX_FD);
 
     // root文件夹用于存放服务器的静态资源文件（如HTML、图片等）。
-    char server_path[200];
-    getcwd(server_path, 200);
-    char root[6] = "/root";
-    m_root = (char *)malloc(strlen(server_path) + strlen(root) + 1);
-    strcpy(m_root, server_path);
-    strcat(m_root, root);
+    m_root = (char *)malloc(100);
+    strcpy(m_root, "/home/user/TinyWebServer/root");
 
     //定时器
     users_timer = std::make_unique<client_data[]>(MAX_FD);
@@ -56,9 +52,6 @@ void WebServer::sql_pool()
     //初始化数据库连接池
     m_connPool = connection_pool::GetInstance();
     m_connPool->init("192.168.19.1", m_user, m_passWord, m_databaseName, 3306, m_sql_num, m_close_log);
-
-    //初始化数据库读取表
-    http_conn::initmysql_result(m_connPool);
 }
 
 void WebServer::thread_pool()

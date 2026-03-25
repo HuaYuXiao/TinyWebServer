@@ -15,41 +15,6 @@ const char *error_500_title = "Internal Error";
 const char *error_500_form = "There was an unusual problem serving the request file.\n";
 
 std::mutex m_lock;
-std::map<std::string, std::string> users;
-
-void http_conn::initmysql_result(connection_pool *connPool)
-{
-    //先从连接池中取一个连接
-    MYSQL *mysql = NULL;
-    connectionRAII mysqlcon(&mysql, connPool);
-
-    // 在student表中检索name，id_card数据，浏览器端输入
-    if (mysql_query(mysql, "SELECT name, id_card, gender, school, province FROM student;"))
-    {
-        std::cerr << mysql_error(mysql) << std::endl;
-        LOG_ERROR("SELECT error:%s\n", mysql_error(mysql));
-    }
-
-    //从表中检索完整的结果集
-    MYSQL_RES *result = mysql_store_result(mysql);
-
-    //返回结果集中的列数
-    int num_fields = mysql_num_fields(result);
-
-    //返回所有字段结构的数组
-    MYSQL_FIELD *fields = mysql_fetch_fields(result);
-
-    //从结果集中获取下一行，将对应的用户名和密码，存入map中
-    while (MYSQL_ROW row = mysql_fetch_row(result))
-    {
-        std::string temp1(row[0]);
-        std::string temp2(row[1]);
-        {
-            std::lock_guard<std::mutex> lock(m_lock);
-            users[temp1] = temp2;
-        }
-    }
-}
 
 // 对文件描述符设置非阻塞
 int setNonBlocking(int fd) {
@@ -142,6 +107,8 @@ void http_conn::init()
     m_read_idx = 0;
     m_write_idx = 0;
     cgi = 0;
+    m_cgi_response.clear();
+    m_cgi_status = 200;
 
     memset(m_read_buf, '\0', READ_BUFFER_SIZE);
     memset(m_write_buf, '\0', WRITE_BUFFER_SIZE);
@@ -239,9 +206,9 @@ http_conn::HTTP_CODE http_conn::parse_request_line(char *text)
 
     if (!m_url || m_url[0] != '/')
         return BAD_REQUEST;
-    //当url为/时，显示判断界面
+    // 当url为/时，显示查询界面
     if (strlen(m_url) == 1)
-        strcat(m_url, "judge.html");
+        strcat(m_url, "index.html");
     m_check_state = CHECK_STATE_HEADER;
     return NO_REQUEST;
 }
@@ -353,111 +320,211 @@ http_conn::HTTP_CODE http_conn::do_request()
     const char *p = strrchr(m_url, '/');
 
     //处理cgi
-    if (cgi == 1 && (*(p + 1) == '2' || *(p + 1) == '3'))
+    if (cgi == 1 && *(p + 1) == '4')
     {
-
-        //根据标志判断是登录检测还是注册检测
-        char flag = m_url[1];
-
-        char *m_url_real = (char *)malloc(sizeof(char) * 200);
-        strcpy(m_url_real, "/");
-        strcat(m_url_real, m_url + 2);
-        strncpy(m_real_file + len, m_url_real, FILENAME_LEN - len - 1);
-        free(m_url_real);
-
-        //将用户名和密码提取出来
-        //user=123&passwd=123
-        char name[100], password[100];
-        int i;
-        for (i = 5; m_string[i] != '&'; ++i)
-            name[i - 5] = m_string[i];
-        name[i - 5] = '\0';
-
-        int j = 0;
-        for (i = i + 10; m_string[i] != '\0'; ++i, ++j)
-            password[j] = m_string[i];
-        password[j] = '\0';
-
-        if (*(p + 1) == '3')
+        if (*(p + 1) == '4')
         {
-            //如果是注册，先检测数据库中是否有重名的
-            //没有重名的，进行增加数据
-            char *sql_insert = (char *)malloc(sizeof(char) * 200);
-            strcpy(sql_insert, "INSERT INTO user(username, passwd) VALUES(");
-            strcat(sql_insert, "'");
-            strcat(sql_insert, name);
-            strcat(sql_insert, "', '");
-            strcat(sql_insert, password);
-            strcat(sql_insert, "')");
-
-            if (users.find(name) == users.end())
+            auto hex_value = [](char c) -> int
             {
-                int res = 0;
+                if (c >= '0' && c <= '9')
+                    return c - '0';
+                if (c >= 'a' && c <= 'f')
+                    return c - 'a' + 10;
+                if (c >= 'A' && c <= 'F')
+                    return c - 'A' + 10;
+                return -1;
+            };
+
+            auto url_decode = [&](const std::string &src) -> std::string
+            {
+                std::string out;
+                out.reserve(src.size());
+                for (size_t i = 0; i < src.size(); ++i)
                 {
-                    std::lock_guard<std::mutex> lock(m_lock);
-                    res = mysql_query(mysql, sql_insert);
-                    users.insert(std::pair<std::string, std::string>(name, password));
+                    char c = src[i];
+                    if (c == '+')
+                    {
+                        out.push_back(' ');
+                    }
+                    else if (c == '%' && i + 2 < src.size())
+                    {
+                        int h1 = hex_value(src[i + 1]);
+                        int h2 = hex_value(src[i + 2]);
+                        if (h1 >= 0 && h2 >= 0)
+                        {
+                            out.push_back(static_cast<char>(h1 * 16 + h2));
+                            i += 2;
+                        }
+                        else
+                        {
+                            out.push_back(c);
+                        }
+                    }
+                    else
+                    {
+                        out.push_back(c);
+                    }
+                }
+                return out;
+            };
+
+            auto get_param = [&](const std::string &body, const char *key) -> std::string
+            {
+                std::string k = std::string(key) + "=";
+                size_t pos = body.find(k);
+                if (pos == std::string::npos)
+                    return "";
+                pos += k.size();
+                size_t end = body.find('&', pos);
+                if (end == std::string::npos)
+                    end = body.size();
+                return url_decode(body.substr(pos, end - pos));
+            };
+
+            auto json_escape = [](const std::string &s) -> std::string
+            {
+                std::string out;
+                out.reserve(s.size());
+                for (char c : s)
+                {
+                    switch (c)
+                    {
+                    case '"':
+                        out += "\\\"";
+                        break;
+                    case '\\':
+                        out += "\\\\";
+                        break;
+                    case '\b':
+                        out += "\\b";
+                        break;
+                    case '\f':
+                        out += "\\f";
+                        break;
+                    case '\n':
+                        out += "\\n";
+                        break;
+                    case '\r':
+                        out += "\\r";
+                        break;
+                    case '\t':
+                        out += "\\t";
+                        break;
+                    default:
+                        out.push_back(c);
+                        break;
+                    }
+                }
+                return out;
+            };
+
+            std::string body(m_string ? m_string : "");
+            std::string name = get_param(body, "name");
+            std::string id_card = get_param(body, "id_card");
+
+            if (name.empty() || id_card.empty())
+            {
+                m_cgi_status = 400;
+                m_cgi_response = "{\"error\":\"missing name or id_card\"}";
+                return CGI_REQUEST;
+            }
+
+            char esc_name[256]{0};
+            char esc_idcard[256]{0};
+            mysql_real_escape_string(mysql, esc_name, name.c_str(), name.size());
+            mysql_real_escape_string(mysql, esc_idcard, id_card.c_str(), id_card.size());
+
+            char sql_query[2048]{0};
+            snprintf(sql_query, sizeof(sql_query),
+                     "SELECT s.student_id, s.name, s.id_card, s.gender, s.province, s.school, "
+                     "subj.subject_name, sc.score "
+                     "FROM student s "
+                     "JOIN score sc ON sc.student_id = s.student_id "
+                     "JOIN subject subj ON subj.subject_id = sc.subject_id "
+                     "WHERE s.name='%s' AND s.id_card='%s';",
+                     esc_name, esc_idcard);
+
+            if (mysql_query(mysql, sql_query))
+            {
+                m_cgi_status = 500;
+                m_cgi_response = "{\"error\":\"mysql_query failed\"}";
+                return CGI_REQUEST;
+            }
+
+            MYSQL_RES *result = mysql_store_result(mysql);
+            if (!result)
+            {
+                m_cgi_status = 500;
+                m_cgi_response = "{\"error\":\"mysql_store_result failed\"}";
+                return CGI_REQUEST;
+            }
+
+            MYSQL_ROW row;
+            bool has_student = false;
+            std::string student_id, real_name, real_idcard, gender, province, school;
+            std::string scores_json;
+            bool first_score = true;
+
+            while ((row = mysql_fetch_row(result)))
+            {
+                auto cell = [&](int idx) -> std::string
+                {
+                    if (!row[idx])
+                        return "";
+                    return std::string(row[idx]);
+                };
+
+                if (!has_student)
+                {
+                    student_id = cell(0);
+                    real_name = cell(1);
+                    real_idcard = cell(2);
+                    gender = cell(3);
+                    province = cell(4);
+                    school = cell(5);
+                    has_student = true;
                 }
 
-                if (!res)
-                    strcpy(m_url, "/log.html");
-                else
-                    strcpy(m_url, "/registerError.html");
+                std::string subject_name = cell(6);
+                std::string score_str = cell(7);
+
+                if (!first_score)
+                    scores_json += ",";
+                first_score = false;
+
+                if (score_str.empty())
+                    score_str = "0";
+
+                scores_json += "{\"subject\":\"" + json_escape(subject_name) + "\",\"score\":" + score_str + "}";
             }
-            else
-                strcpy(m_url, "/registerError.html");
+
+            mysql_free_result(result);
+
+            if (!has_student)
+            {
+                m_cgi_status = 404;
+                m_cgi_response = "{\"error\":\"student not found\"}";
+                return CGI_REQUEST;
+            }
+
+            std::string json;
+            json += "{\"student\":{";
+            json += "\"student_id\":\"" + json_escape(student_id) + "\",";
+            json += "\"name\":\"" + json_escape(real_name) + "\",";
+            json += "\"id_card\":\"" + json_escape(real_idcard) + "\",";
+            json += "\"gender\":\"" + json_escape(gender) + "\",";
+            json += "\"province\":\"" + json_escape(province) + "\",";
+            json += "\"school\":\"" + json_escape(school) + "\"";
+            json += "},\"scores\":[";
+            json += scores_json;
+            json += "]}";
+
+            m_cgi_status = 200;
+            m_cgi_response = json;
+            return CGI_REQUEST;
         }
-        //如果是登录，直接判断
-        //若浏览器端输入的用户名和密码在表中可以查找到，返回1，否则返回0
-        else if (*(p + 1) == '2')
-        {
-            if (users.find(name) != users.end() && users[name] == password)
-                strcpy(m_url, "/welcome.html");
-            else
-                strcpy(m_url, "/logError.html");
-        }
     }
 
-    if (*(p + 1) == '0')
-    {
-        char *m_url_real = (char *)malloc(sizeof(char) * 200);
-        strcpy(m_url_real, "/register.html");
-        strncpy(m_real_file + len, m_url_real, strlen(m_url_real));
-
-        free(m_url_real);
-    }
-    else if (*(p + 1) == '1')
-    {
-        char *m_url_real = (char *)malloc(sizeof(char) * 200);
-        strcpy(m_url_real, "/log.html");
-        strncpy(m_real_file + len, m_url_real, strlen(m_url_real));
-
-        free(m_url_real);
-    }
-    else if (*(p + 1) == '5')
-    {
-        char *m_url_real = (char *)malloc(sizeof(char) * 200);
-        strcpy(m_url_real, "/picture.html");
-        strncpy(m_real_file + len, m_url_real, strlen(m_url_real));
-
-        free(m_url_real);
-    }
-    else if (*(p + 1) == '6')
-    {
-        char *m_url_real = (char *)malloc(sizeof(char) * 200);
-        strcpy(m_url_real, "/video.html");
-        strncpy(m_real_file + len, m_url_real, strlen(m_url_real));
-
-        free(m_url_real);
-    }
-    else if (*(p + 1) == '7')
-    {
-        char *m_url_real = (char *)malloc(sizeof(char) * 200);
-        strcpy(m_url_real, "/fans.html");
-        strncpy(m_real_file + len, m_url_real, strlen(m_url_real));
-
-        free(m_url_real);
-    }
     else
         strncpy(m_real_file + len, m_url, FILENAME_LEN - len - 1);
 
@@ -592,6 +659,28 @@ bool http_conn::process_write(HTTP_CODE ret)
 {
     switch (ret)
     {
+    case CGI_REQUEST:
+    {
+        const char *title = ok_200_title;
+        if (m_cgi_status == 400)
+            title = error_400_title;
+        else if (m_cgi_status == 403)
+            title = error_403_title;
+        else if (m_cgi_status == 404)
+            title = error_404_title;
+        else if (m_cgi_status == 500)
+            title = error_500_title;
+
+        if (m_cgi_response.empty())
+            m_cgi_response = "{}";
+
+        add_status_line(m_cgi_status, title);
+        add_response("Content-Type:%s\r\n", "application/json");
+        add_headers(m_cgi_response.size());
+        if (!add_content(m_cgi_response.c_str()))
+            return false;
+        break;
+    }
     case INTERNAL_ERROR:
     {
         add_status_line(500, error_500_title);
@@ -637,6 +726,14 @@ bool http_conn::process_write(HTTP_CODE ret)
             if (!add_content(ok_string))
                 return false;
         }
+    }
+    case NO_RESOURCE:
+    {
+        add_status_line(404, error_404_title);
+        add_headers(strlen(error_404_form));
+        if (!add_content(error_404_form))
+            return false;
+        break;
     }
     default:
         return false;

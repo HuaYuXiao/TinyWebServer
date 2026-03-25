@@ -18,7 +18,7 @@
 #include <stdlib.h>
 #include <stdarg.h>
 #include <errno.h>
-#include <map>
+#include <string>
 #include <mutex>
 #include <thread>
 
@@ -60,6 +60,7 @@ public:
         NO_RESOURCE,
         FORBIDDEN_REQUEST,
         FILE_REQUEST,
+        CGI_REQUEST,
         INTERNAL_ERROR,
         CLOSED_CONNECTION
     };
@@ -94,7 +95,6 @@ public:
     bool read_once();
     bool write();
     sockaddr_in *get_address() { return &m_address; }
-    static void initmysql_result(connection_pool *connPool);
 
     // Public Members
     static int m_user_count; // Make m_user_count public
@@ -156,8 +156,9 @@ private:
     int bytes_to_send;
     int bytes_have_send;
     char *doc_root;
+    std::string m_cgi_response;
+    int m_cgi_status;
 
-    std::map<std::string, std::string> m_users;
     int m_close_log;
 
     char sql_user[100];
