@@ -15,22 +15,13 @@ set(SOURCES
     log/log.cpp
     CGImysql/sql_connection_pool.cpp
 )
-
 add_executable(server ${SOURCES})
 
 # Threads
 find_package(Threads REQUIRED)
-if(Threads_FOUND)
-    target_link_libraries(server PRIVATE Threads::Threads)
-endif()
-
 # MySQL client library
 find_library(MYSQLCLIENT_LIB mysqlclient)
-if(MYSQLCLIENT_LIB)
-    target_link_libraries(server PRIVATE ${MYSQLCLIENT_LIB})
-else()
-    message(WARNING "Could not find mysqlclient library. You may need to install libmysqlclient and/or set MYSQLCLIENT_LIB paths.")
-endif()
+target_link_libraries(server PRIVATE Threads::Threads ${MYSQLCLIENT_LIB})
 
 # Include directories
 target_include_directories(server PRIVATE
