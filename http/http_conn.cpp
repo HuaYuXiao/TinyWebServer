@@ -23,9 +23,10 @@ void http_conn::initmysql_result(connection_pool *connPool)
     MYSQL *mysql = NULL;
     connectionRAII mysqlcon(&mysql, connPool);
 
-    //在user表中检索username，passwd数据，浏览器端输入
-    if (mysql_query(mysql, "SELECT username,passwd FROM user"))
+    // 在student表中检索name，id_card数据，浏览器端输入
+    if (mysql_query(mysql, "SELECT name, id_card, gender, school, province FROM student;"))
     {
+        std::cerr << mysql_error(mysql) << std::endl;
         LOG_ERROR("SELECT error:%s\n", mysql_error(mysql));
     }
 

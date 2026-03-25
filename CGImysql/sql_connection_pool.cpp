@@ -39,10 +39,10 @@ void connection_pool::init(const string& url,
 
 	for (int i = 0; i < MaxConn; ++i)
 	{
-
 		// 1. 初始化MySQL连接句柄
 		MYSQL *mysql_conn = mysql_init(NULL);
 		if (!mysql_conn) {  // 必须检查返回值是否为NULL
+			std::cerr << mysql_error(mysql_conn) << std::endl;
 			LOG_ERROR(mysql_error(mysql_conn));
 			exit(1);
 		}
@@ -59,6 +59,7 @@ void connection_pool::init(const string& url,
 			0                  // 连接标志
 		)) {
 			mysql_close(mysql_conn);  // 失败时也需要关闭句柄释放资源
+			std::cerr << mysql_error(mysql_conn) << std::endl;
 			LOG_ERROR(mysql_error(mysql_conn));
 			exit(1);
 		}
