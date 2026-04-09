@@ -173,53 +173,64 @@ void WebServer::deal_timer(util_timer *timer, int sockfd)
 
 bool WebServer::dealclientdata()
 {
-    struct sockaddr_in client_address;
-    socklen_t client_addrlength = sizeof(client_address);
+    while (true)
+    {
+        struct sockaddr_in client_address;
+        socklen_t client_addrlength = sizeof(client_address);
 
-    int connfd = accept(m_listenfd, (struct sockaddr *)&client_address, &client_addrlength);
-    if (connfd < 0)
-    {
-        LOG_ERROR("%s:errno is:%d", "accept error", errno);
-        return false;
+        int connfd = accept(m_listenfd, (struct sockaddr *)&client_address, &client_addrlength);
+        if (connfd < 0)
+        {
+            if (errno == EAGAIN || errno == EWOULDBLOCK)
+            {
+                break;
+            }
+            LOG_ERROR("%s:errno is:%d", "accept error", errno);
+            return false;
+        }
+        if (http_conn::m_user_count >= MAX_FD)
+        {
+            close(connfd);
+            continue;
+        }
+        timer(connfd, client_address);
     }
-    if (http_conn::m_user_count >= MAX_FD)
-    {
-        return false;
-    }
-    timer(connfd, client_address);
     return true;
 }
 
 bool WebServer::dealwithsignal(bool &timeout, bool &stop_server)
 {
-    int ret = 0;
-    int sig;
-    char signals[1024];
-    ret = recv(m_pipefd[0], signals, sizeof(signals), 0);
-    if (ret == -1)
+    while (true)
     {
-        return false;
-    }
-    else if (ret == 0)
-    {
-        return false;
-    }
-    else
-    {
+        char signals[1024];
+        int ret = recv(m_pipefd[0], signals, sizeof(signals), 0);
+        if (ret < 0)
+        {
+            if (errno == EAGAIN || errno == EWOULDBLOCK)
+            {
+                break;
+            }
+            return false;
+        }
+        if (ret == 0)
+        {
+            return false;
+        }
+
         for (int i = 0; i < ret; ++i)
         {
             switch (signals[i])
             {
-            case SIGALRM:
-            {
-                timeout = true;
-                break;
-            }
-            case SIGTERM:
-            {
-                stop_server = true;
-                break;
-            }
+                case SIGALRM:
+                {
+                    timeout = true;
+                    break;
+                }
+                case SIGTERM:
+                {
+                    stop_server = true;
+                    break;
+                }
             }
         }
     }

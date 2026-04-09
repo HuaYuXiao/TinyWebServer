@@ -160,14 +160,11 @@ int Utils::setNonBlocking(int fd)
 }
 
 //将内核事件表注册读事件（LT 模式），可选择开启 EPOLLONESHOT
-void Utils::addfd(int epollfd, int fd, bool one_shot)
+void Utils::addfd(int epollfd, int fd)
 {
     epoll_event event;
     event.data.fd = fd;
-    event.events = EPOLLIN | EPOLLRDHUP;
-
-    if (one_shot)
-        event.events |= EPOLLONESHOT;
+    event.events = EPOLLIN | EPOLLRDHUP | EPOLLET | EPOLLONESHOT;
     epoll_ctl(epollfd, EPOLL_CTL_ADD, fd, &event);
     setNonBlocking(fd);
 }
