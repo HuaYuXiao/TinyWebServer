@@ -106,8 +106,20 @@ void http_conn::init()
     m_cgi_response.clear();
     m_cgi_status = 200;
 
-    memset(m_read_buf.data(), '\0', READ_BUFFER_SIZE);
-    memset(m_write_buf.data(), '\0', WRITE_BUFFER_SIZE);
+    m_user_agent.clear();
+    m_accept.clear();
+    m_accept_language.clear();
+    m_accept_encoding.clear();
+    m_content_type.clear();
+    m_origin.clear();
+    m_referer.clear();
+    m_upgrade_insecure_requests.clear();
+    m_sec_fetch_dest.clear();
+    m_sec_fetch_mode.clear();
+    m_sec_fetch_site.clear();
+    m_sec_fetch_user.clear();
+    m_priority.clear();
+
     m_read_buf.assign(READ_BUFFER_SIZE, '\0');
     m_write_buf.assign(WRITE_BUFFER_SIZE, '\0');
     m_real_file.clear();
@@ -266,12 +278,95 @@ http_conn::HTTP_CODE http_conn::parse_headers(char *text)
         text += 15;
         text += strspn(text, " \t");
         m_content_length = atol(text);
+        // 限制最大请求体大小为 1MB，防止 DoS 攻击
+        if (m_content_length > MAX_CONTENT_LENGTH)
+        {
+            return BAD_REQUEST;
+        }
     }
     else if (strncasecmp(text, "Host:", 5) == 0)
     {
         text += 5;
         text += strspn(text, " \t");
         m_host = text;
+    }
+    else if (strncasecmp(text, "User-Agent:", 11) == 0)
+    {
+        text += 11;
+        text += strspn(text, " \t");
+        m_user_agent = text;
+    }
+    else if (strncasecmp(text, "Accept:", 7) == 0)
+    {
+        text += 7;
+        text += strspn(text, " \t");
+        m_accept = text;
+    }
+    else if (strncasecmp(text, "Accept-Language:", 16) == 0)
+    {
+        text += 16;
+        text += strspn(text, " \t");
+        m_accept_language = text;
+    }
+    else if (strncasecmp(text, "Accept-Encoding:", 16) == 0)
+    {
+        text += 16;
+        text += strspn(text, " \t");
+        m_accept_encoding = text;
+    }
+    else if (strncasecmp(text, "Content-Type:", 13) == 0)
+    {
+        text += 13;
+        text += strspn(text, " \t");
+        m_content_type = text;
+    }
+    else if (strncasecmp(text, "Origin:", 7) == 0)
+    {
+        text += 7;
+        text += strspn(text, " \t");
+        m_origin = text;
+    }
+    else if (strncasecmp(text, "Referer:", 8) == 0)
+    {
+        text += 8;
+        text += strspn(text, " \t");
+        m_referer = text;
+    }
+    else if (strncasecmp(text, "Upgrade-Insecure-Requests:", 25) == 0)
+    {
+        text += 25;
+        text += strspn(text, " \t");
+        m_upgrade_insecure_requests = text;
+    }
+    else if (strncasecmp(text, "Sec-Fetch-Dest:", 15) == 0)
+    {
+        text += 15;
+        text += strspn(text, " \t");
+        m_sec_fetch_dest = text;
+    }
+    else if (strncasecmp(text, "Sec-Fetch-Mode:", 15) == 0)
+    {
+        text += 15;
+        text += strspn(text, " \t");
+        m_sec_fetch_mode = text;
+    }
+    else if (strncasecmp(text, "Sec-Fetch-Site:", 15) == 0)
+    {
+        text += 15;
+        text += strspn(text, " \t");
+        m_sec_fetch_site = text;
+    }
+    else if (strncasecmp(text, "Sec-Fetch-User:", 15) == 0)
+    {
+        text += 15;
+        text += strspn(text, " \t");
+        m_sec_fetch_user = text;
+    }
+    else if (strncasecmp(text, "Priority:", 9) == 0)
+    {
+        text += 9;
+        text += strspn(text, " \t");
+        m_priority = text;
     }
     else
     {
@@ -286,8 +381,15 @@ http_conn::HTTP_CODE http_conn::parse_content(char *text)
     if (m_read_idx >= (m_content_length + m_checked_idx))
     {
         text[m_content_length] = '\0';
-        //POST请求中最后为输入的用户名和密码
-        m_string = text;
+        // 验证 m_string 指向的缓冲区是否在有效范围内
+        if (text >= m_read_buf.data() && text + m_content_length <= m_read_buf.data() + m_read_buf.size())
+        {
+            m_string = text;
+        }
+        else
+        {
+            return BAD_REQUEST; // 缓冲区越界
+        }
         return GET_REQUEST;
     }
     return NO_REQUEST;
@@ -445,10 +547,12 @@ http_conn::HTTP_CODE http_conn::do_request()
                 return out;
             };
 
+            // 1) 从 POST 请求体中读取参数，并进行 URL 解码后的参数解析
             std::string body(m_string ? m_string : "");
             std::string name = get_param(body, "name");
             std::string id_card = get_param(body, "id_card");
 
+            // 2) 如果缺少任一必要参数，则返回客户端 400 错误
             if (name.empty() || id_card.empty())
             {
                 m_cgi_status = 400;
@@ -456,76 +560,165 @@ http_conn::HTTP_CODE http_conn::do_request()
                 return CGI_REQUEST;
             }
 
-            char esc_name[256]{0};
-            char esc_idcard[256]{0};
-            mysql_real_escape_string(mysql, esc_name, name.c_str(), name.size());
-            mysql_real_escape_string(mysql, esc_idcard, id_card.c_str(), id_card.size());
-
-            char sql_query[2048]{0};
-            snprintf(sql_query, sizeof(sql_query),
-                     "SELECT s.student_id, s.name, s.id_card, s.gender, s.province, s.school, "
-                     "subj.subject_name, sc.score "
-                     "FROM student s "
-                     "JOIN score sc ON sc.student_id = s.student_id "
-                     "JOIN subject subj ON subj.subject_id = sc.subject_id "
-                     "WHERE s.name='%s' AND s.id_card='%s';",
-                     esc_name, esc_idcard);
-
-            if (mysql_query(mysql, sql_query))
+            // 3) 初始化预编译语句对象，MySQL 将在后续步骤中使用占位符绑定参数
+            //    该方式可以把用户输入当成纯数据处理，避免拼接 SQL 字符串时出现注入。
+            MYSQL_STMT *stmt = mysql_stmt_init(mysql);
+            if (!stmt)
             {
                 m_cgi_status = 500;
-                m_cgi_response = "{\"error\":\"mysql_query failed\"}";
+                m_cgi_response = "{\"error\":\"mysql_stmt_init failed\"}";
                 return CGI_REQUEST;
             }
 
-            MYSQL_RES *result = mysql_store_result(mysql);
+            // 4) SQL 查询模板中的 ? 是占位符，此时用户输入尚未拼接到 SQL 中
+            const char *query = "SELECT s.student_id, s.name, s.id_card, s.gender, s.province, s.school, "
+                                "subj.subject_name, sc.score "
+                                "FROM student s "
+                                "JOIN score sc ON sc.student_id = s.student_id "
+                                "JOIN subject subj ON subj.subject_id = sc.subject_id "
+                                "WHERE s.name=? AND s.id_card=?;";
+
+            if (mysql_stmt_prepare(stmt, query, strlen(query)))
+            {
+                mysql_stmt_close(stmt);
+                m_cgi_status = 500;
+                m_cgi_response = "{\"error\":\"mysql_stmt_prepare failed\"}";
+                return CGI_REQUEST;
+            }
+
+            // 5) 绑定实际参数到 SQL 占位符位置，name 对应第一个 ?, id_card 对应第二个 ?
+            MYSQL_BIND bind[2];
+            memset(bind, 0, sizeof(bind));
+
+            bind[0].buffer_type = MYSQL_TYPE_STRING;
+            bind[0].buffer = (char *)name.c_str();
+            bind[0].buffer_length = name.length();
+
+            bind[1].buffer_type = MYSQL_TYPE_STRING;
+            bind[1].buffer = (char *)id_card.c_str();
+            bind[1].buffer_length = id_card.length();
+
+            if (mysql_stmt_bind_param(stmt, bind))
+            {
+                mysql_stmt_close(stmt);
+                m_cgi_status = 500;
+                m_cgi_response = "{\"error\":\"mysql_stmt_bind_param failed\"}";
+                return CGI_REQUEST;
+            }
+
+            // 6) 执行绑定好的预编译语句，此时 MySQL 会把 name 和 id_card 作为数据处理
+            if (mysql_stmt_execute(stmt))
+            {
+                mysql_stmt_close(stmt);
+                m_cgi_status = 500;
+                m_cgi_response = "{\"error\":\"mysql_stmt_execute failed\"}";
+                return CGI_REQUEST;
+            }
+
+            // 7) 获取结果元数据，用于后续将每一列绑定到本地缓冲区
+            MYSQL_RES *result = mysql_stmt_result_metadata(stmt);
             if (!result)
             {
+                mysql_stmt_close(stmt);
                 m_cgi_status = 500;
-                m_cgi_response = "{\"error\":\"mysql_store_result failed\"}";
+                m_cgi_response = "{\"error\":\"mysql_stmt_result_metadata failed\"}";
+                return CGI_REQUEST;
+            }
+
+            // 8) 定义结果列的缓冲区，顺序必须和 SELECT 语句中列的顺序一致
+            MYSQL_BIND result_bind[8];
+            memset(result_bind, 0, sizeof(result_bind));
+
+            char student_id[50], real_name[100], real_idcard[50], gender[10], province[50], school[100], subject_name[100], score_str[10];
+            unsigned long lengths[8];
+
+            result_bind[0].buffer_type = MYSQL_TYPE_STRING;
+            result_bind[0].buffer = student_id;
+            result_bind[0].buffer_length = sizeof(student_id);
+            result_bind[0].length = &lengths[0];
+
+            result_bind[1].buffer_type = MYSQL_TYPE_STRING;
+            result_bind[1].buffer = real_name;
+            result_bind[1].buffer_length = sizeof(real_name);
+            result_bind[1].length = &lengths[1];
+
+            result_bind[2].buffer_type = MYSQL_TYPE_STRING;
+            result_bind[2].buffer = real_idcard;
+            result_bind[2].buffer_length = sizeof(real_idcard);
+            result_bind[2].length = &lengths[2];
+
+            result_bind[3].buffer_type = MYSQL_TYPE_STRING;
+            result_bind[3].buffer = gender;
+            result_bind[3].buffer_length = sizeof(gender);
+            result_bind[3].length = &lengths[3];
+
+            result_bind[4].buffer_type = MYSQL_TYPE_STRING;
+            result_bind[4].buffer = province;
+            result_bind[4].buffer_length = sizeof(province);
+            result_bind[4].length = &lengths[4];
+
+            result_bind[5].buffer_type = MYSQL_TYPE_STRING;
+            result_bind[5].buffer = school;
+            result_bind[5].buffer_length = sizeof(school);
+            result_bind[5].length = &lengths[5];
+
+            result_bind[6].buffer_type = MYSQL_TYPE_STRING;
+            result_bind[6].buffer = subject_name;
+            result_bind[6].buffer_length = sizeof(subject_name);
+            result_bind[6].length = &lengths[6];
+
+            result_bind[7].buffer_type = MYSQL_TYPE_STRING;
+            result_bind[7].buffer = score_str;
+            result_bind[7].buffer_length = sizeof(score_str);
+            result_bind[7].length = &lengths[7];
+
+            // 9) 将结果列绑定到本地缓冲区，fetch 读取时会把每一列写入到这些缓存中
+            if (mysql_stmt_bind_result(stmt, result_bind))
+            {
+                mysql_free_result(result);
+                mysql_stmt_close(stmt);
+                m_cgi_status = 500;
+                m_cgi_response = "{\"error\":\"mysql_stmt_bind_result failed\"}";
+                return CGI_REQUEST;
+            }
+
+            if (mysql_stmt_store_result(stmt))
+            {
+                mysql_free_result(result);
+                mysql_stmt_close(stmt);
+                m_cgi_status = 500;
+                m_cgi_response = "{\"error\":\"mysql_stmt_store_result failed\"}";
                 return CGI_REQUEST;
             }
 
             MYSQL_ROW row;
             bool has_student = false;
-            std::string student_id, real_name, real_idcard, gender, province, school;
             std::string scores_json;
             bool first_score = true;
 
-            while ((row = mysql_fetch_row(result)))
+            // 10) 遍历结果集中的每一行
+            //     mysql_stmt_fetch 会把已经绑定的 result_bind 缓冲区填充当前行的列值
+            while (!mysql_stmt_fetch(stmt))
             {
-                auto cell = [&](int idx) -> std::string
-                {
-                    if (!row[idx])
-                        return "";
-                    return std::string(row[idx]);
-                };
-
                 if (!has_student)
                 {
-                    student_id = cell(0);
-                    real_name = cell(1);
-                    real_idcard = cell(2);
-                    gender = cell(3);
-                    province = cell(4);
-                    school = cell(5);
                     has_student = true;
                 }
-
-                std::string subject_name = cell(6);
-                std::string score_str = cell(7);
 
                 if (!first_score)
                     scores_json += ",";
                 first_score = false;
 
-                if (score_str.empty())
-                    score_str = "0";
+                std::string subj_name(subject_name, lengths[6]);
+                std::string scr_str(score_str, lengths[7]);
+                if (scr_str.empty())
+                    scr_str = "0";
 
-                scores_json += "{\"subject\":\"" + json_escape(subject_name) + "\",\"score\":" + score_str + "}";
+                scores_json += "{\"subject\":\"" + json_escape(subj_name) + "\",\"score\":" + scr_str + "}";
             }
 
             mysql_free_result(result);
+            mysql_stmt_close(stmt);
 
             if (!has_student)
             {
@@ -536,12 +729,12 @@ http_conn::HTTP_CODE http_conn::do_request()
 
             std::string json;
             json += "{\"student\":{";
-            json += "\"student_id\":\"" + json_escape(student_id) + "\",";
-            json += "\"name\":\"" + json_escape(real_name) + "\",";
-            json += "\"id_card\":\"" + json_escape(real_idcard) + "\",";
-            json += "\"gender\":\"" + json_escape(gender) + "\",";
-            json += "\"province\":\"" + json_escape(province) + "\",";
-            json += "\"school\":\"" + json_escape(school) + "\"";
+            json += "\"student_id\":\"" + json_escape(std::string(student_id, lengths[0])) + "\",";
+            json += "\"name\":\"" + json_escape(std::string(real_name, lengths[1])) + "\",";
+            json += "\"id_card\":\"" + json_escape(std::string(real_idcard, lengths[2])) + "\",";
+            json += "\"gender\":\"" + json_escape(std::string(gender, lengths[3])) + "\",";
+            json += "\"province\":\"" + json_escape(std::string(province, lengths[4])) + "\",";
+            json += "\"school\":\"" + json_escape(std::string(school, lengths[5])) + "\"";
             json += "},\"scores\":[";
             json += scores_json;
             json += "]}";
@@ -551,7 +744,6 @@ http_conn::HTTP_CODE http_conn::do_request()
             return CGI_REQUEST;
         }
     }
-
     else
         m_real_file.append(m_url);
 
@@ -569,6 +761,7 @@ http_conn::HTTP_CODE http_conn::do_request()
     close(fd);
     return FILE_REQUEST;
 }
+
 void http_conn::unmap()
 {
     if (m_file_address)
@@ -613,7 +806,7 @@ bool http_conn::write()
         }
         else
         {
-            m_iv[0].iov_base = static_cast<void*>(m_write_buf.data() + bytes_have_send);
+            m_iv[0].iov_base = m_write_buf.data() + bytes_have_send;
             m_iv[0].iov_len = m_iv[0].iov_len - bytes_have_send;
         }
 
@@ -752,6 +945,7 @@ bool http_conn::process_write(HTTP_CODE ret)
             add_headers(strlen(ok_string));
             if (!add_content(ok_string))
                 return false;
+            break;
         }
     }
     case NO_RESOURCE:

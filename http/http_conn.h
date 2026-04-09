@@ -34,6 +34,7 @@ public:
     static const int FILENAME_LEN = 200;
     static const int READ_BUFFER_SIZE = 2048;
     static const int WRITE_BUFFER_SIZE = 1024;
+    static const long MAX_CONTENT_LENGTH = 1024 * 1024; // 1MB
 
     // Enumerations
     enum METHOD {
@@ -146,6 +147,20 @@ private:
     char *m_host;
     long m_content_length;
     bool m_linger;
+
+    std::string m_user_agent;
+    std::string m_accept;
+    std::string m_accept_language;
+    std::string m_accept_encoding;
+    std::string m_content_type;
+    std::string m_origin;
+    std::string m_referer;
+    std::string m_upgrade_insecure_requests;
+    std::string m_sec_fetch_dest;
+    std::string m_sec_fetch_mode;
+    std::string m_sec_fetch_site;
+    std::string m_sec_fetch_user;
+    std::string m_priority;
 
     char *m_file_address;
     struct stat m_file_stat;
