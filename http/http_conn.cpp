@@ -65,8 +65,8 @@ void http_conn::close_conn(bool real_close)
 }
 
 //初始化连接,外部调用初始化套接字地址
-void http_conn::init(int sockfd, const sockaddr_in &addr, char *root,
-                     int close_log, string user, string passwd, string sqlname)
+void http_conn::init(int sockfd, const sockaddr_in &addr, std::string root,
+                     int close_log, std::string user, std::string passwd, std::string sqlname)
 {
     m_sockfd = sockfd;
     m_address = addr;
@@ -78,9 +78,9 @@ void http_conn::init(int sockfd, const sockaddr_in &addr, char *root,
     doc_root = root;
     m_close_log = close_log;
 
-    strcpy(sql_user, user.c_str());
-    strcpy(sql_passwd, passwd.c_str());
-    strcpy(sql_name, sqlname.c_str());
+    sql_user = user;
+    sql_passwd = passwd;
+    sql_name = sqlname;
 
     init();
 }
@@ -108,7 +108,9 @@ void http_conn::init()
 
     memset(m_read_buf, '\0', READ_BUFFER_SIZE);
     memset(m_write_buf, '\0', WRITE_BUFFER_SIZE);
-    memset(m_real_file, '\0', FILENAME_LEN);
+    m_read_buf.assign(READ_BUFFER_SIZE, '\0');
+    m_write_buf.assign(WRITE_BUFFER_SIZE, '\0');
+    m_real_file.clear();
 }
 
 //从状态机，用于分析出一行内容
@@ -155,7 +157,7 @@ bool http_conn::read_once()
 
     while (true)
     {
-        int bytes_read = recv(m_sockfd, m_read_buf + m_read_idx, READ_BUFFER_SIZE - m_read_idx, 0);
+        int bytes_read = recv(m_sockfd, m_read_buf.data() + m_read_idx, READ_BUFFER_SIZE - m_read_idx, 0);
         if (bytes_read > 0)
         {
             m_read_idx += bytes_read;
@@ -339,8 +341,8 @@ http_conn::HTTP_CODE http_conn::process_read()
 
 http_conn::HTTP_CODE http_conn::do_request()
 {
-    strcpy(m_real_file, doc_root);
-    int len = strlen(doc_root);
+    m_real_file = doc_root;
+    size_t len = doc_root.length();
     //printf("m_url:%s\n", m_url);
     const char *p = strrchr(m_url, '/');
 
@@ -551,9 +553,9 @@ http_conn::HTTP_CODE http_conn::do_request()
     }
 
     else
-        strncpy(m_real_file + len, m_url, FILENAME_LEN - len - 1);
+        m_real_file.append(m_url);
 
-    if (stat(m_real_file, &m_file_stat) < 0)
+    if (stat(m_real_file.c_str(), &m_file_stat) < 0)
         return NO_RESOURCE;
 
     if (!(m_file_stat.st_mode & S_IROTH))
@@ -638,7 +640,7 @@ bool http_conn::add_response(const char *format, ...)
         return false;
     va_list arg_list;
     va_start(arg_list, format);
-    int len = vsnprintf(m_write_buf + m_write_idx, WRITE_BUFFER_SIZE - 1 - m_write_idx, format, arg_list);
+    int len = vsnprintf(m_write_buf.data() + m_write_idx, WRITE_BUFFER_SIZE - 1 - m_write_idx, format, arg_list);
     if (len >= (WRITE_BUFFER_SIZE - 1 - m_write_idx))
     {
         va_end(arg_list);
@@ -647,7 +649,7 @@ bool http_conn::add_response(const char *format, ...)
     m_write_idx += len;
     va_end(arg_list);
 
-    LOG_INFO("request:%s", m_write_buf);
+    LOG_INFO("request:%s", m_write_buf.data());
 
     return true;
 }
@@ -736,7 +738,7 @@ bool http_conn::process_write(HTTP_CODE ret)
         if (m_file_stat.st_size != 0)
         {
             add_headers(m_file_stat.st_size);
-            m_iv[0].iov_base = m_write_buf;
+            m_iv[0].iov_base = m_write_buf.data();
             m_iv[0].iov_len = m_write_idx;
             m_iv[1].iov_base = m_file_address;
             m_iv[1].iov_len = m_file_stat.st_size;
@@ -763,7 +765,7 @@ bool http_conn::process_write(HTTP_CODE ret)
     default:
         return false;
     }
-    m_iv[0].iov_base = m_write_buf;
+    m_iv[0].iov_base = m_write_buf.data();
     m_iv[0].iov_len = m_write_idx;
     m_iv_count = 1;
     bytes_to_send = m_write_idx;

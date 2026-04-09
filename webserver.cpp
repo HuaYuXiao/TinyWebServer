@@ -6,8 +6,7 @@ WebServer::WebServer()
     users = std::make_unique<http_conn[]>(MAX_FD);
 
     // root文件夹用于存放服务器的静态资源文件（如HTML、图片等）。
-    m_root = (char *)malloc(100);
-    strcpy(m_root, "/home/user/TinyWebServer/root");
+    m_root = "/home/user/TinyWebServer/root";
 
     //定时器
     users_timer = std::make_unique<client_data[]>(MAX_FD);

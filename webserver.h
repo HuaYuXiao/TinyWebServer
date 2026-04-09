@@ -12,6 +12,7 @@
 #include <cassert>
 #include <sys/epoll.h>
 #include <memory>
+#include <string>
 
 #include "./threadpool/threadpool.h"
 #include "./http/http_conn.h"
@@ -46,7 +47,7 @@ public:
 public:
     //基础
     int m_port;
-    char *m_root;
+    std::string m_root;
     int m_log_write;
     int m_close_log;
 

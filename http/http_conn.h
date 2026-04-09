@@ -19,6 +19,7 @@
 #include <stdarg.h>
 #include <errno.h>
 #include <string>
+#include <vector>
 #include <mutex>
 #include <thread>
 
@@ -128,18 +129,18 @@ private:
     int m_sockfd;
     sockaddr_in m_address;
 
-    char m_read_buf[READ_BUFFER_SIZE];
+    std::vector<char> m_read_buf;
     long m_read_idx;
     long m_checked_idx;
     int m_start_line;
 
-    char m_write_buf[WRITE_BUFFER_SIZE];
+    std::vector<char> m_write_buf;
     int m_write_idx;
 
     CHECK_STATE m_check_state;
     METHOD m_method;
 
-    char m_real_file[FILENAME_LEN];
+    std::string m_real_file;
     char *m_url;
     char *m_version;
     char *m_host;
@@ -155,15 +156,15 @@ private:
     char *m_string; // Store request header data
     int bytes_to_send;
     int bytes_have_send;
-    char *doc_root;
+    std::string doc_root;
     std::string m_cgi_response;
     int m_cgi_status;
 
     int m_close_log;
 
-    char sql_user[100];
-    char sql_passwd[100];
-    char sql_name[100];
+    std::string sql_user;
+    std::string sql_passwd;
+    std::string sql_name;
 };
 
 #endif
