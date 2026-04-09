@@ -175,7 +175,11 @@ void Utils::sig_handler(int sig)
     //为保证函数的可重入性，保留原来的errno
     int save_errno = errno;
     int msg = sig;
-    send(u_pipefd[1], (char *)&msg, 1, 0);
+    int *pipefd = u_pipefd.load();
+    if (pipefd)
+    {
+        send(pipefd[1], (char *)&msg, 1, 0);
+    }
     errno = save_errno;
 }
 
@@ -204,13 +208,13 @@ void Utils::show_error(int connfd, const char *info)
     close(connfd);
 }
 
-int *Utils::u_pipefd = 0;
-int Utils::u_epollfd = 0;
+std::atomic<int*> Utils::u_pipefd = nullptr;
+std::atomic<int> Utils::u_epollfd = 0;
 
 class Utils;
 void cb_func(client_data *user_data)
 {
-    epoll_ctl(Utils::u_epollfd, EPOLL_CTL_DEL, user_data->sockfd, 0);
+    epoll_ctl(Utils::u_epollfd.load(), EPOLL_CTL_DEL, user_data->sockfd, 0);
     assert(user_data);
     close(user_data->sockfd);
     http_conn::m_user_count--;

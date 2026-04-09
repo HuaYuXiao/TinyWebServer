@@ -21,6 +21,7 @@
 #include <sys/wait.h>
 #include <sys/uio.h>
 #include <time.h>
+#include <atomic>
 #include "../log/log.h"
 
 class util_timer;
@@ -91,9 +92,9 @@ public:
     void show_error(int connfd, const char *info);
 
 public:
-    static int *u_pipefd;
+    static std::atomic<int*> u_pipefd;
     sort_timer_lst m_timer_lst;
-    static int u_epollfd;
+    static std::atomic<int> u_epollfd;
     int m_TIMESLOT;
 };
 

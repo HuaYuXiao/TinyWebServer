@@ -22,6 +22,7 @@
 #include <vector>
 #include <mutex>
 #include <thread>
+#include <atomic>
 
 #include "../CGImysql/sql_connection_pool.h"
 #include "../timer/lst_timer.h"
@@ -99,8 +100,8 @@ public:
     sockaddr_in *get_address() { return &m_address; }
 
     // Public Members
-    static int m_user_count; // Make m_user_count public
-    static int m_epollfd;    // Make m_epollfd public
+    static std::atomic<int> m_user_count; // Make m_user_count public
+    static std::atomic<int> m_epollfd;    // Make m_epollfd public
 
     MYSQL* mysql;            // Make mysql public
 

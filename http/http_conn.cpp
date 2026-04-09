@@ -49,8 +49,8 @@ void removefd(int epollfd, int fd)
     close(fd);
 }
 
-int http_conn::m_user_count = 0;
-int http_conn::m_epollfd = -1;
+std::atomic<int> http_conn::m_user_count = 0;
+std::atomic<int> http_conn::m_epollfd = -1;
 
 //关闭连接，关闭一个连接，客户总量减一
 void http_conn::close_conn(bool real_close)
@@ -60,7 +60,7 @@ void http_conn::close_conn(bool real_close)
         printf("close %d\n", m_sockfd);
         removefd(m_epollfd, m_sockfd);
         m_sockfd = -1;
-        m_user_count--;
+        --m_user_count;
     }
 }
 
@@ -249,6 +249,7 @@ http_conn::HTTP_CODE http_conn::parse_request_line(char *text)
     if (strlen(m_url) == 1)
         strcat(m_url, "index.html");
     m_check_state = CHECK_STATE_HEADER;
+
     return NO_REQUEST;
 }
 
@@ -368,10 +369,7 @@ http_conn::HTTP_CODE http_conn::parse_headers(char *text)
         text += strspn(text, " \t");
         m_priority = text;
     }
-    else
-    {
-        LOG_INFO("oop!unknow header: %s", text);
-    }
+
     return NO_REQUEST;
 }
 
