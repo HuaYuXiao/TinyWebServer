@@ -156,12 +156,41 @@ bool http_conn::read_once()
     {
         return false;
     }
-    int bytes_read = recv(m_sockfd, m_read_buf + m_read_idx, READ_BUFFER_SIZE - m_read_idx, 0);
-    if (bytes_read <= 0)
+
+    while (true)
     {
+        int bytes_read = recv(m_sockfd, m_read_buf + m_read_idx, READ_BUFFER_SIZE - m_read_idx, 0);
+        if (bytes_read > 0)
+        {
+            m_read_idx += bytes_read;
+            if (m_read_idx >= READ_BUFFER_SIZE)
+            {
+                break;
+            }
+            continue;
+        }
+
+        if (bytes_read == 0)
+        {
+            // Peer closed the connection gracefully.
+            return false;
+        }
+
+        // bytes_read < 0
+        if (errno == EAGAIN || errno == EWOULDBLOCK)
+        {
+            // Non-blocking socket has no more data for now.
+            break;
+        }
+        if (errno == EINTR)
+        {
+            // Interrupted by signal, retry recv.
+            continue;
+        }
+        // Other errors indicate this connection should be closed.
         return false;
     }
-    m_read_idx += bytes_read;
+
     return true;
 }
 
