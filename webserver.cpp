@@ -3,17 +3,21 @@
 WebServer::WebServer()
 {
     //http_conn类对象
-    users = std::make_unique<http_conn[]>(MAX_FD);
+    users.resize(MAX_FD);
 
     // root文件夹用于存放服务器的静态资源文件（如HTML、图片等）。
     m_root = "/home/user/TinyWebServer/root";
 
     //定时器
-    users_timer = std::make_unique<client_data[]>(MAX_FD);
+    users_timer.resize(MAX_FD);
 }
 
 WebServer::~WebServer()
 {
+    for (http_conn user : users)
+    {
+        user.close_conn();
+    }
     close(m_epollfd);
     close(m_listenfd);
     close(m_pipefd[1]);
@@ -246,7 +250,7 @@ void WebServer::dealwithread(int sockfd)
         LOG_INFO("deal with the client(%s)", inet_ntoa(users[sockfd].get_address()->sin_addr));
 
         // 将该事件放入请求队列
-        m_pool->append_p(users.get() + sockfd);
+        m_pool->append_p(users.data() + sockfd);
 
         if (timer)
         {

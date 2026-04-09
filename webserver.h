@@ -13,6 +13,7 @@
 #include <sys/epoll.h>
 #include <memory>
 #include <string>
+#include <vector>
 
 #include "./threadpool/threadpool.h"
 #include "./http/http_conn.h"
@@ -53,7 +54,7 @@ public:
 
     int m_pipefd[2];
     int m_epollfd;
-    std::unique_ptr<http_conn[]> users;
+    std::vector<http_conn> users;
 
     // 管理与数据库的连接，提供高效的数据库访问支持。
     connection_pool *m_connPool;
@@ -73,7 +74,7 @@ public:
     int m_OPT_LINGER;
 
     //定时器相关
-    std::unique_ptr<client_data[]> users_timer;
+    std::vector<client_data> users_timer;
     Utils utils;
 };
 #endif

@@ -58,7 +58,11 @@ void http_conn::close_conn(bool real_close)
     if (real_close && (m_sockfd != -1))
     {
         printf("close %d\n", m_sockfd);
-        removefd(m_epollfd, m_sockfd);
+        int epollfd = m_epollfd.load();
+        if (epollfd != -1)
+        {
+            removefd(epollfd, m_sockfd);
+        }
         m_sockfd = -1;
         --m_user_count;
     }
