@@ -106,8 +106,8 @@ void http_conn::init()
     m_cgi_response.clear();
     m_cgi_status = 200;
 
-    memset(m_read_buf, '\0', READ_BUFFER_SIZE);
-    memset(m_write_buf, '\0', WRITE_BUFFER_SIZE);
+    memset(m_read_buf.data(), '\0', READ_BUFFER_SIZE);
+    memset(m_write_buf.data(), '\0', WRITE_BUFFER_SIZE);
     m_read_buf.assign(READ_BUFFER_SIZE, '\0');
     m_write_buf.assign(WRITE_BUFFER_SIZE, '\0');
     m_real_file.clear();
@@ -564,7 +564,7 @@ http_conn::HTTP_CODE http_conn::do_request()
     if (S_ISDIR(m_file_stat.st_mode))
         return BAD_REQUEST;
 
-    int fd = open(m_real_file, O_RDONLY);
+    int fd = open(m_real_file.c_str(), O_RDONLY);
     m_file_address = (char *)mmap(0, m_file_stat.st_size, PROT_READ, MAP_PRIVATE, fd, 0);
     close(fd);
     return FILE_REQUEST;
@@ -613,7 +613,7 @@ bool http_conn::write()
         }
         else
         {
-            m_iv[0].iov_base = m_write_buf + bytes_have_send;
+            m_iv[0].iov_base = static_cast<void*>(m_write_buf.data() + bytes_have_send);
             m_iv[0].iov_len = m_iv[0].iov_len - bytes_have_send;
         }
 
