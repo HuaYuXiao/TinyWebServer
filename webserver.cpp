@@ -222,18 +222,14 @@ bool WebServer::dealwithsignal(bool &timeout, bool &stop_server)
 
         for (int i = 0; i < ret; ++i)
         {
-            switch (signals[i])
+            char sig = signals[i];
+            if (sig == SIGALRM)
             {
-                case SIGALRM:
-                {
-                    timeout = true;
-                    break;
-                }
-                case SIGTERM:
-                {
-                    stop_server = true;
-                    break;
-                }
+                timeout = true;
+            }
+            else if (sig == SIGTERM || sig == SIGINT || sig == SIGQUIT || sig == SIGSEGV)
+            {
+                stop_server = true;
             }
         }
     }
