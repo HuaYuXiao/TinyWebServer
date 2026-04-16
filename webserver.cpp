@@ -10,18 +10,35 @@ WebServer::WebServer()
 
     //定时器
     users_timer.resize(MAX_FD);
+
+    m_epollfd = -1;
+    m_listenfd = -1;
+    m_pipefd[0] = -1;
+    m_pipefd[1] = -1;
 }
 
 WebServer::~WebServer()
 {
-    for (http_conn user : users)
+    for (int i = 0; i < MAX_FD; ++i)
     {
-        user.close_conn();
+        if (users_timer[i].timer)
+        {
+            deal_timer(users_timer[i].timer, i);
+        }
+        users[i].close_conn();
     }
-    close(m_epollfd);
-    close(m_listenfd);
-    close(m_pipefd[1]);
-    close(m_pipefd[0]);
+
+    // 释放http_conn/定时器的vector内存
+    users.clear();
+    users.shrink_to_fit();
+
+    users_timer.clear();
+    users_timer.shrink_to_fit();
+
+    if (m_epollfd != -1) close(m_epollfd);
+    if (m_listenfd != -1) close(m_listenfd);
+    if (m_pipefd[1] != -1) close(m_pipefd[1]);
+    if (m_pipefd[0] != -1) close(m_pipefd[0]);
 }
 
 void WebServer::init(int port, string user, string passWord, string databaseName, int log_write, 
@@ -143,7 +160,8 @@ void WebServer::timer(int connfd, struct sockaddr_in client_address)
     //创建定时器，设置回调函数和超时时间，绑定用户数据，将定时器添加到链表中
     users_timer[connfd].address = client_address;
     users_timer[connfd].sockfd = connfd;
-    util_timer *timer = new util_timer;
+    users_timer[connfd].user = &users[connfd]; // Associated with http_conn
+    std::shared_ptr<util_timer> timer = std::make_shared<util_timer>();
     timer->user_data = &users_timer[connfd];
     timer->cb_func = cb_func;
     time_t cur = time(NULL);
@@ -154,7 +172,7 @@ void WebServer::timer(int connfd, struct sockaddr_in client_address)
 
 //若有数据传输，则将定时器往后延迟3个单位
 //并对新的定时器在链表上的位置进行调整
-void WebServer::adjust_timer(util_timer *timer)
+void WebServer::adjust_timer(std::shared_ptr<util_timer> timer)
 {
     time_t cur = time(NULL);
     timer->expire = cur + 3 * TIMESLOT;
@@ -163,12 +181,13 @@ void WebServer::adjust_timer(util_timer *timer)
     LOG_INFO("%s", "adjust timer once");
 }
 
-void WebServer::deal_timer(util_timer *timer, int sockfd)
+void WebServer::deal_timer(std::shared_ptr<util_timer> timer, int sockfd)
 {
-    timer->cb_func(&users_timer[sockfd]);
     if (timer)
     {
+        timer->cb_func(&users_timer[sockfd]);
         utils.m_timer_lst.del_timer(timer);
+        users_timer[sockfd].timer.reset();
     }
 
     LOG_INFO("close fd %d", users_timer[sockfd].sockfd);
@@ -238,7 +257,7 @@ bool WebServer::dealwithsignal(bool &timeout, bool &stop_server)
 
 void WebServer::dealwithread(int sockfd)
 {
-    util_timer *timer = users_timer[sockfd].timer;
+    std::shared_ptr<util_timer> timer = users_timer[sockfd].timer;
 
     // Proactor 模式：主线程完成读操作后，将请求交给线程池处理
     if (users[sockfd].read_once())
@@ -261,7 +280,7 @@ void WebServer::dealwithread(int sockfd)
 
 void WebServer::dealwithwrite(int sockfd)
 {
-    util_timer *timer = users_timer[sockfd].timer;
+    std::shared_ptr<util_timer> timer = users_timer[sockfd].timer;
 
     // Proactor 模式：主线程完成写操作
     if (users[sockfd].write())
@@ -307,7 +326,7 @@ void WebServer::eventLoop()
             else if (events[i].events & (EPOLLRDHUP | EPOLLHUP | EPOLLERR))
             {
                 //服务器端关闭连接，移除对应的定时器
-                util_timer *timer = users_timer[sockfd].timer;
+                std::shared_ptr<util_timer> timer = users_timer[sockfd].timer;
                 deal_timer(timer, sockfd);
             }
             //处理信号

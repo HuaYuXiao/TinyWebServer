@@ -63,6 +63,7 @@ void http_conn::close_conn(bool real_close)
         {
             removefd(epollfd, m_sockfd);
         }
+        unmap();
         m_sockfd = -1;
         --m_user_count;
     }
