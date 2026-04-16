@@ -9,8 +9,7 @@ using namespace std;
 
 Log::~Log() {
     if (m_is_async && m_log_thread.joinable()) {
-        if (m_log_queue) m_log_queue->push("STOP"); // Optional: signal thread to stop
-        m_log_thread.join();
+        m_log_thread.join(); // Ensure the logging thread is properly joined
     }
 
     if (m_fp) {
@@ -23,18 +22,24 @@ bool Log::init(const char *file_name, int close_log, int log_buf_size, int split
     //如果设置了max_queue_size,则设置为异步
     if (max_queue_size >= 1) {
         m_is_async = true;
-        m_log_queue = std::make_unique<block_queue<string>>(max_queue_size);
+        m_log_queue = new block_queue<string>(max_queue_size);
 
-        // 使用lambda表达式创建线程
-        m_log_thread = std::thread([this]() {
-            this->async_write_log();
-        });
+        // Create a thread for asynchronous logging
+        if (max_queue_size >= 1) {
+            m_is_async = true;
+            m_log_queue = new block_queue<string>(max_queue_size);
+
+            // 使用lambda表达式创建线程
+            m_log_thread = std::thread([this]() {
+                this->async_write_log();
+            });
+        }
     }
     
     m_close_log = close_log;
     m_log_buf_size = log_buf_size;
-    m_buf = std::make_unique<char[]>(m_log_buf_size);
-    memset(m_buf.get(), '\0', m_log_buf_size);
+    m_buf = new char[m_log_buf_size];
+    memset(m_buf, '\0', m_log_buf_size);
     m_split_lines = split_lines;
 
     time_t t = time(NULL);
@@ -121,14 +126,14 @@ void Log::write_log(int level, const char *format, ...) {
         std::lock_guard<std::mutex> lock(m_mutex);
 
         //写入的具体时间内容格式
-        int n = snprintf(m_buf.get(), 48, "%d-%02d-%02d %02d:%02d:%02d.%06ld %s ",
-                     my_tm.tm_year + 1900, my_tm.tm_mon + 1, my_tm.tm_mday,
-                     my_tm.tm_hour, my_tm.tm_min, my_tm.tm_sec, now.tv_usec, s);
+        int n = snprintf(m_buf, 48, "%d-%02d-%02d %02d:%02d:%02d.%06ld %s ",
+                         my_tm.tm_year + 1900, my_tm.tm_mon + 1, my_tm.tm_mday,
+                         my_tm.tm_hour, my_tm.tm_min, my_tm.tm_sec, now.tv_usec, s);
 
-    int m = vsnprintf(m_buf.get() + n, m_log_buf_size - n - 1, format, valst);
-    m_buf[n + m] = '\n';
-    m_buf[n + m + 1] = '\0';
-    log_str = m_buf.get();
+        int m = vsnprintf(m_buf + n, m_log_buf_size - n - 1, format, valst);
+        m_buf[n + m] = '\n';
+        m_buf[n + m + 1] = '\0';
+        log_str = m_buf;
     }
 
     if (m_is_async && !m_log_queue->full()) {

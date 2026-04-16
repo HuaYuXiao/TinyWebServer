@@ -3,21 +3,21 @@
 
 sort_timer_lst::sort_timer_lst()
 {
-    head = nullptr;
-    tail = nullptr;
+    head = NULL;
+    tail = NULL;
 }
 sort_timer_lst::~sort_timer_lst()
 {
-    while (head)
+    util_timer *tmp = head;
+    while (tmp)
     {
-        std::shared_ptr<util_timer> tmp = head->next;
-        head->next.reset();
-        if (tmp) tmp->prev.reset();
-        head = tmp;
+        head = tmp->next;
+        delete tmp;
+        tmp = head;
     }
 }
 
-void sort_timer_lst::add_timer(std::shared_ptr<util_timer> timer)
+void sort_timer_lst::add_timer(util_timer *timer)
 {
     if (!timer)
     {
@@ -37,13 +37,13 @@ void sort_timer_lst::add_timer(std::shared_ptr<util_timer> timer)
     }
     add_timer(timer, head);
 }
-void sort_timer_lst::adjust_timer(std::shared_ptr<util_timer> timer)
+void sort_timer_lst::adjust_timer(util_timer *timer)
 {
     if (!timer)
     {
         return;
     }
-    std::shared_ptr<util_timer> tmp = timer->next;
+    util_timer *tmp = timer->next;
     if (!tmp || (timer->expire < tmp->expire))
     {
         return;
@@ -51,19 +51,18 @@ void sort_timer_lst::adjust_timer(std::shared_ptr<util_timer> timer)
     if (timer == head)
     {
         head = head->next;
-        head->prev.reset();
-        timer->next.reset();
+        head->prev = NULL;
+        timer->next = NULL;
         add_timer(timer, head);
     }
     else
     {
-        auto prev = timer->prev.lock();
-        if (prev) prev->next = timer->next;
-        if (timer->next) timer->next->prev = prev;
+        timer->prev->next = timer->next;
+        timer->next->prev = timer->prev;
         add_timer(timer, timer->next);
     }
 }
-void sort_timer_lst::del_timer(std::shared_ptr<util_timer> timer)
+void sort_timer_lst::del_timer(util_timer *timer)
 {
     if (!timer)
     {
@@ -71,31 +70,28 @@ void sort_timer_lst::del_timer(std::shared_ptr<util_timer> timer)
     }
     if ((timer == head) && (timer == tail))
     {
-        head.reset();
-        tail.reset();
+        delete timer;
+        head = NULL;
+        tail = NULL;
         return;
     }
     if (timer == head)
     {
         head = head->next;
-        if (head) head->prev.reset();
-        timer->next.reset();
+        head->prev = NULL;
+        delete timer;
         return;
     }
     if (timer == tail)
     {
-        auto prev = timer->prev.lock();
-        if (prev) {
-            prev->next.reset();
-            tail = prev;
-        }
+        tail = tail->prev;
+        tail->next = NULL;
+        delete timer;
         return;
     }
-    auto prev = timer->prev.lock();
-    if (prev) prev->next = timer->next;
-    if (timer->next) timer->next->prev = prev;
-    timer->next.reset();
-    timer->prev.reset();
+    timer->prev->next = timer->next;
+    timer->next->prev = timer->prev;
+    delete timer;
 }
 void sort_timer_lst::tick()
 {
@@ -105,31 +101,28 @@ void sort_timer_lst::tick()
     }
     
     time_t cur = time(NULL);
-    std::shared_ptr<util_timer> tmp = head;
+    util_timer *tmp = head;
     while (tmp)
     {
         if (cur < tmp->expire)
         {
             break;
         }
-        if (tmp->cb_func && tmp->user_data) {
-            tmp->cb_func(tmp->user_data);
-        }
-        
+        tmp->cb_func(tmp->user_data);
         head = tmp->next;
         if (head)
         {
-            head->prev.reset();
+            head->prev = NULL;
         }
-        tmp->next.reset();
+        delete tmp;
         tmp = head;
     }
 }
 
-void sort_timer_lst::add_timer(std::shared_ptr<util_timer> timer, std::shared_ptr<util_timer> lst_head)
+void sort_timer_lst::add_timer(util_timer *timer, util_timer *lst_head)
 {
-    std::shared_ptr<util_timer> prev = lst_head;
-    std::shared_ptr<util_timer> tmp = prev->next;
+    util_timer *prev = lst_head;
+    util_timer *tmp = prev->next;
     while (tmp)
     {
         if (timer->expire < tmp->expire)
@@ -147,7 +140,7 @@ void sort_timer_lst::add_timer(std::shared_ptr<util_timer> timer, std::shared_pt
     {
         prev->next = timer;
         timer->prev = prev;
-        timer->next = nullptr;
+        timer->next = NULL;
         tail = timer;
     }
 }
@@ -221,8 +214,8 @@ std::atomic<int> Utils::u_epollfd = 0;
 class Utils;
 void cb_func(client_data *user_data)
 {
-    if (user_data && user_data->user)
-    {
-        user_data->user->close_conn();
-    }
+    epoll_ctl(Utils::u_epollfd.load(), EPOLL_CTL_DEL, user_data->sockfd, 0);
+    assert(user_data);
+    close(user_data->sockfd);
+    http_conn::m_user_count--;
 }

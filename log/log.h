@@ -5,7 +5,7 @@
 #include <iostream>
 #include <string>
 #include <stdarg.h>
-#include <memory>
+#include <thread>
 #include <mutex>
 #include "block_queue.h"
 
@@ -31,12 +31,12 @@ public:
 private:
     Log() = default;
     virtual ~Log();
-    void async_write_log() {
+    void *async_write_log() {
         string single_log;
         //从阻塞队列中取出一个日志string，写入文件
-        while (m_log_queue && m_log_queue->pop(single_log)) {
+        while (m_log_queue->pop(single_log)) {
             std::lock_guard<std::mutex> lock(m_mutex);
-            if (m_fp) fputs(single_log.c_str(), m_fp);
+            fputs(single_log.c_str(), m_fp);
         }
     }
 
@@ -48,8 +48,8 @@ private:
     long long m_count = 0;  //日志行数记录
     int m_today;        //因为按天分类,记录当前时间是那一天
     FILE *m_fp;         //打开log的文件指针
-    std::unique_ptr<char[]> m_buf;
-    std::unique_ptr<block_queue<string>> m_log_queue; //阻塞队列
+    char *m_buf;
+    block_queue<string> *m_log_queue; //阻塞队列
     std::thread m_log_thread;
     bool m_is_async = false;                  //是否同步标志位
     std::mutex m_mutex;

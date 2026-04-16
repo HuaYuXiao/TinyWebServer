@@ -1,0 +1,50 @@
+2026-04-09 23:22:05.190515 [info]: deal with the client(127.0.0.1)
+2026-04-09 23:22:05.190886 [info]: adjust timer once
+2026-04-09 23:22:05.190981 [info]: POST /4 HTTP/1.1
+2026-04-09 23:22:05.191187 [info]: Host: localhost:9006
+2026-04-09 23:22:05.191216 [info]: User-Agent: Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:147.0) Gecko/20100101 Firefox/147.0
+2026-04-09 23:22:05.191372 [info]: Accept: text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8
+2026-04-09 23:22:05.191405 [info]: Accept-Language: zh-CN,zh;q=0.9,zh-TW;q=0.8,zh-HK;q=0.7,en-US;q=0.6,en;q=0.5
+2026-04-09 23:22:05.191425 [info]: Accept-Encoding: gzip, deflate, br, zstd
+2026-04-09 23:22:05.191447 [info]: Content-Type: application/x-www-form-urlencoded
+2026-04-09 23:22:05.191490 [info]: Content-Length: 59
+2026-04-09 23:22:05.191524 [info]: Origin: http://localhost:9006
+2026-04-09 23:22:05.191546 [info]: Connection: keep-alive
+2026-04-09 23:22:05.191561 [info]: Referer: http://localhost:9006/
+2026-04-09 23:22:05.191588 [info]: Upgrade-Insecure-Requests: 1
+2026-04-09 23:22:05.191615 [info]: Sec-Fetch-Dest: document
+2026-04-09 23:22:05.191632 [info]: Sec-Fetch-Mode: navigate
+2026-04-09 23:22:05.191648 [info]: Sec-Fetch-Site: same-origin
+2026-04-09 23:22:05.191663 [info]: Sec-Fetch-User: ?1
+2026-04-09 23:22:05.191681 [info]: Priority: u=0, i
+2026-04-09 23:22:05.191702 [info]: 
+2026-04-09 23:22:05.191715 [info]: name=%E5%8D%8E%E7%BE%BD%E9%9C%84&id_card=320404200202222815
+2026-04-09 23:22:05.196169 [info]: request:HTTP/1.1 200 OK
+
+2026-04-09 23:22:05.196267 [info]: request:HTTP/1.1 200 OK
+Content-Type:application/json
+
+2026-04-09 23:22:05.196344 [info]: request:HTTP/1.1 200 OK
+Content-Type:application/json
+Content-Length:262
+
+2026-04-09 23:22:05.196368 [info]: request:HTTP/1.1 200 OK
+Content-Type:application/json
+Content-Length:262
+Connection:keep-alive
+
+2026-04-09 23:22:05.196386 [info]: request:HTTP/1.1 200 OK
+Content-Type:application/json
+Content-Length:262
+Connection:keep-alive
+
+
+2026-04-09 23:22:05.196411 [info]: request:HTTP/1.1 200 OK
+Content-Type:application/json
+Content-Length:262
+Connection:keep-alive
+
+{"student":{"student_id":"1203","name":"华羽霄","id_card":"320404200202222815","gender":"男","province":"江苏省","school":"常州市第一中学"},"scores":[{"subject":"English","score":145},{"subject":"Math","score":64},{"subject":"Chinese","score":86}]}
+2026-04-09 23:22:05.196611 [info]: send data to the client(127.0.0.1)
+2026-04-09 23:22:05.196821 [info]: adjust timer once
+2026-04-09 23:22:07.503844 [info]: timer tick

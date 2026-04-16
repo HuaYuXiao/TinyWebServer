@@ -20,38 +20,32 @@
 #include <errno.h>
 #include <sys/wait.h>
 #include <sys/uio.h>
-#include <sys/socket.h>
-#include <netinet/in.h>
-#include <arpa/inet.h>
-#include <memory>
+#include <time.h>
 #include <atomic>
 #include "../log/log.h"
 
 class util_timer;
-class http_conn;
 
 // 面向网络层，存储每个客户端连接的相关数据，包括客户端地址、套接字描述符、定时器等。
 struct client_data
 {
     sockaddr_in address;
     int sockfd;
-    std::shared_ptr<util_timer> timer;
-    http_conn *user; // Pointer to associated http_conn
+    util_timer *timer;
 };
 
-class util_timer : public std::enable_shared_from_this<util_timer>
+class util_timer
 {
 public:
-    util_timer() : user_data(nullptr) {}
-    ~util_timer() {}
+    util_timer() : prev(NULL), next(NULL) {}
 
 public:
     time_t expire;
     
     void (* cb_func)(client_data *);
     client_data *user_data;
-    std::weak_ptr<util_timer> prev;
-    std::shared_ptr<util_timer> next;
+    util_timer *prev;
+    util_timer *next;
 };
 
 class sort_timer_lst
@@ -60,16 +54,16 @@ public:
     sort_timer_lst();
     ~sort_timer_lst();
 
-    void add_timer(std::shared_ptr<util_timer> timer);
-    void adjust_timer(std::shared_ptr<util_timer> timer);
-    void del_timer(std::shared_ptr<util_timer> timer);
+    void add_timer(util_timer *timer);
+    void adjust_timer(util_timer *timer);
+    void del_timer(util_timer *timer);
     void tick();
 
 private:
-    void add_timer(std::shared_ptr<util_timer> timer, std::shared_ptr<util_timer> lst_head);
+    void add_timer(util_timer *timer, util_timer *lst_head);
 
-    std::shared_ptr<util_timer> head;
-    std::shared_ptr<util_timer> tail;
+    util_timer *head;
+    util_timer *tail;
 };
 
 class Utils
