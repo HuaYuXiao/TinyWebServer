@@ -22,12 +22,12 @@ int setNonBlocking(int fd) {
     return fcntl(fd, F_SETFL, flags | O_NONBLOCK);
 }
 
-//将内核事件表注册读事件（ET 模式），开启 EPOLLONESHOT
+// 将内核事件表注册读事件（LT 模式），开启 EPOLLONESHOT
 void addfd(int epollfd, int fd)
 {
     epoll_event event;
     event.data.fd = fd;
-    event.events = EPOLLIN | EPOLLRDHUP | EPOLLET | EPOLLONESHOT;
+    event.events = EPOLLIN | EPOLLRDHUP | EPOLLONESHOT;
     epoll_ctl(epollfd, EPOLL_CTL_ADD, fd, &event);
     setNonBlocking(fd);
 }
@@ -37,7 +37,7 @@ void modfd(int epollfd, int fd, int ev)
 {
     epoll_event event;
     event.data.fd = fd;
-    event.events = ev | EPOLLONESHOT | EPOLLRDHUP | EPOLLET;
+    event.events = ev | EPOLLONESHOT | EPOLLRDHUP;
 
     epoll_ctl(epollfd, EPOLL_CTL_MOD, fd, &event);
 }

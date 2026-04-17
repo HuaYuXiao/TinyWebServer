@@ -159,12 +159,12 @@ int Utils::setNonBlocking(int fd)
     return old_option;
 }
 
-//将内核事件表注册读事件（LT 模式），可选择开启 EPOLLONESHOT
+// 将内核事件表注册读事件（LT 模式），开启 EPOLLONESHOT
 void Utils::addfd(int epollfd, int fd)
 {
     epoll_event event;
     event.data.fd = fd;
-    event.events = EPOLLIN | EPOLLRDHUP | EPOLLET | EPOLLONESHOT;
+    event.events = EPOLLIN | EPOLLRDHUP | EPOLLONESHOT;
     epoll_ctl(epollfd, EPOLL_CTL_ADD, fd, &event);
     setNonBlocking(fd);
 }
