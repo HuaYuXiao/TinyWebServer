@@ -13,8 +13,8 @@ Config::Config(){
     //数据库连接池数量,默认8
     sql_num = 8;
 
-    //线程池内的线程数量,默认8
-    thread_num = 8;
+    //线程池内的线程数量,默认 64
+    thread_num = 64;
 
     //关闭日志,默认不关闭
     close_log = 0;
