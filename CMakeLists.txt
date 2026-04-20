@@ -12,7 +12,6 @@ set(SOURCES
     config.cpp
     timer/lst_timer.cpp
     http/http_conn.cpp
-    log/log.cpp
     CGImysql/sql_connection_pool.cpp
 )
 add_executable(server ${SOURCES})
@@ -28,6 +27,4 @@ target_include_directories(server PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}
     ${CMAKE_CURRENT_SOURCE_DIR}/CGImysql
     ${CMAKE_CURRENT_SOURCE_DIR}/http
-    ${CMAKE_CURRENT_SOURCE_DIR}/log
-    ${CMAKE_CURRENT_SOURCE_DIR}/lock
 )
