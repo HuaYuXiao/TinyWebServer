@@ -1,9 +1,9 @@
 # Linux下高并发Web服务器
 
-* 使用 **epoll(LT)** 的模拟Proactor并发模型
+* 使用 **epoll(LT)** 的模拟 Proactor 并发模型
 * 使用**状态机**解析HTTP请求报文，支持解析**GET和POST**请求
 * 实现**同步/异步日志系统**，记录服务器运行状态
-* 经 Goroutine 压力测试，在10000并发连接下，可以达到8000QPS
+* 经 Goroutine 压力测试，在 10000 并发连接下，可以达到 **8000QPS**
 
 ## 概述
 
@@ -40,10 +40,10 @@
 
 ## 压力测试
 
-使用 Goroutine 对服务器进行压力测试，可实现上万的并发连接 
+使用 Goroutine 对服务器进行压力测试，可实现上万的并发连接
 
 ```go
-go run stressTest.go -c 10000 -d 60 -u http://localhost:9006
+go run pressureTest.go -c 10000 -d 60 -u http://localhost:9006
 ```
 
 > * 并发连接总数：10000
@@ -55,6 +55,18 @@ go run stressTest.go -c 10000 -d 60 -u http://localhost:9006
 ```bash
 sudo netstat -anp | grep :9006 | awk '{print $6}' | sort | uniq -c
 ```
+
+## perf Flamegraph 分析
+
+```bash
+sudo perf record -F 99 -a -p <PID> -g -- sleep 10
+perf report -i perf.data
+sudo perf script > perf.perf
+./stackcollapse-perf.pl perf.perf > perf.folded
+./flamegraph.pl perf.folded > perf.svg
+```
+
+![perf](log/perf.svg)
 
 ## 庖丁解牛
 
