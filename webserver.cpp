@@ -127,13 +127,9 @@ void WebServer::timer(int connfd, struct sockaddr_in client_address) {
 }
 
 // 若有数据传输，则将定时器往后延迟3个单位
-// 并对新的定时器在链表上的位置进行调整
 void WebServer::adjust_timer(util_timer *timer) {
   time_t cur = time(NULL);
-  timer->expire = cur + 3 * TIMESLOT;
-  utils.m_timer_lst.adjust_timer(timer);
-
-  std::cout << "adjust timer once" << std::endl;
+  utils.m_timer_lst.adjust_timer(timer, cur + 3 * TIMESLOT);
 }
 
 void WebServer::deal_timer(util_timer *timer, int sockfd) {
@@ -142,7 +138,7 @@ void WebServer::deal_timer(util_timer *timer, int sockfd) {
     utils.m_timer_lst.del_timer(timer);
   }
 
-  std::cout << "close fd " << users_timer[sockfd].sockfd << std::endl;
+//   std::cout << "close fd " << users_timer[sockfd].sockfd << std::endl;
 }
 
 bool WebServer::dealclientdata() {
@@ -193,9 +189,9 @@ void WebServer::dealwithread(int sockfd) {
 
   // Proactor 模式：主线程完成读操作后，将请求交给线程池处理
   if (users[sockfd].read_once()) {
-    std::cout << "deal with the client("
-              << inet_ntoa(users[sockfd].get_address()->sin_addr) << ")"
-              << std::endl;
+    // std::cout << "deal with the client("
+    //           << inet_ntoa(users[sockfd].get_address()->sin_addr) << ")"
+    //           << std::endl;
 
     // 将该事件放入请求队列
     m_pool->append_p(users.get() + sockfd);
@@ -213,9 +209,9 @@ void WebServer::dealwithwrite(int sockfd) {
 
   // Proactor 模式：主线程完成写操作
   if (users[sockfd].write()) {
-    std::cout << "send data to the client("
-              << inet_ntoa(users[sockfd].get_address()->sin_addr) << ")"
-              << std::endl;
+    // std::cout << "send data to the client("
+    //           << inet_ntoa(users[sockfd].get_address()->sin_addr) << ")"
+    //           << std::endl;
 
     if (timer) {
       adjust_timer(timer);
@@ -265,7 +261,7 @@ void WebServer::eventLoop() {
     if (timeout) {
       utils.timer_handler();
 
-      std::cout << "timer tick" << std::endl;
+    //   std::cout << "timer tick" << std::endl;
 
       timeout = false;
     }

@@ -6,6 +6,7 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <netinet/in.h>
+#include <set>
 #include <signal.h>
 #include <stdarg.h>
 #include <stdio.h>
@@ -33,32 +34,32 @@ struct client_data {
 
 class util_timer {
 public:
-  util_timer() : prev(NULL), next(NULL) {}
+  util_timer() {}
 
-public:
   time_t expire;
-
   void (*cb_func)(client_data *);
   client_data *user_data;
-  util_timer *prev;
-  util_timer *next;
 };
 
 class sort_timer_lst {
 public:
-  sort_timer_lst();
+  sort_timer_lst() = default;
   ~sort_timer_lst();
 
   void add_timer(util_timer *timer);
-  void adjust_timer(util_timer *timer);
+  void adjust_timer(util_timer *timer, time_t new_expire);
   void del_timer(util_timer *timer);
   void tick();
 
 private:
-  void add_timer(util_timer *timer, util_timer *lst_head);
-
-  util_timer *head;
-  util_timer *tail;
+  struct timer_cmp {
+    bool operator()(const util_timer *a, const util_timer *b) const {
+      if (a->expire != b->expire)
+        return a->expire < b->expire;
+      return a < b; // tiebreaker: 相同 expire 按指针地址排序
+    }
+  };
+  std::set<util_timer *, timer_cmp> timer_set;
 };
 
 class Utils {

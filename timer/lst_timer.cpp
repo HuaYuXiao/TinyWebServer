@@ -1,120 +1,50 @@
 #include "lst_timer.h"
 #include "../http/http_conn.h"
 
-sort_timer_lst::sort_timer_lst() {
-  head = NULL;
-  tail = NULL;
-}
 sort_timer_lst::~sort_timer_lst() {
-  util_timer *tmp = head;
-  while (tmp) {
-    head = tmp->next;
-    delete tmp;
-    tmp = head;
+  for (util_timer *timer : timer_set) {
+    delete timer;
   }
 }
 
 void sort_timer_lst::add_timer(util_timer *timer) {
-  if (!timer) {
+  if (!timer)
     return;
-  }
-  if (!head) {
-    head = tail = timer;
-    return;
-  }
-  if (timer->expire < head->expire) {
-    timer->next = head;
-    head->prev = timer;
-    head = timer;
-    return;
-  }
-  add_timer(timer, head);
+  timer_set.insert(timer);
 }
-void sort_timer_lst::adjust_timer(util_timer *timer) {
-  if (!timer) {
+
+void sort_timer_lst::adjust_timer(util_timer *timer, time_t new_expire) {
+  auto it = timer_set.find(timer);
+  if (it == timer_set.end())
     return;
-  }
-  util_timer *tmp = timer->next;
-  if (!tmp || (timer->expire < tmp->expire)) {
-    return;
-  }
-  if (timer == head) {
-    head = head->next;
-    head->prev = NULL;
-    timer->next = NULL;
-    add_timer(timer, head);
-  } else {
-    timer->prev->next = timer->next;
-    timer->next->prev = timer->prev;
-    add_timer(timer, timer->next);
-  }
+  timer_set.erase(it);
+  timer->expire = new_expire;
+  timer_set.insert(timer);
 }
+
 void sort_timer_lst::del_timer(util_timer *timer) {
-  if (!timer) {
+  if (!timer)
     return;
-  }
-  if ((timer == head) && (timer == tail)) {
+  auto it = timer_set.find(timer);
+  if (it != timer_set.end()) {
+    timer_set.erase(it);
     delete timer;
-    head = NULL;
-    tail = NULL;
-    return;
   }
-  if (timer == head) {
-    head = head->next;
-    head->prev = NULL;
-    delete timer;
-    return;
-  }
-  if (timer == tail) {
-    tail = tail->prev;
-    tail->next = NULL;
-    delete timer;
-    return;
-  }
-  timer->prev->next = timer->next;
-  timer->next->prev = timer->prev;
-  delete timer;
 }
+
 void sort_timer_lst::tick() {
-  if (!head) {
+  if (timer_set.empty())
     return;
-  }
 
   time_t cur = time(NULL);
-  util_timer *tmp = head;
-  while (tmp) {
-    if (cur < tmp->expire) {
+  while (!timer_set.empty()) {
+    auto it = timer_set.begin();
+    util_timer *timer = *it;
+    if (cur < timer->expire)
       break;
-    }
-    tmp->cb_func(tmp->user_data);
-    head = tmp->next;
-    if (head) {
-      head->prev = NULL;
-    }
-    delete tmp;
-    tmp = head;
-  }
-}
-
-void sort_timer_lst::add_timer(util_timer *timer, util_timer *lst_head) {
-  util_timer *prev = lst_head;
-  util_timer *tmp = prev->next;
-  while (tmp) {
-    if (timer->expire < tmp->expire) {
-      prev->next = timer;
-      timer->next = tmp;
-      tmp->prev = timer;
-      timer->prev = prev;
-      break;
-    }
-    prev = tmp;
-    tmp = tmp->next;
-  }
-  if (!tmp) {
-    prev->next = timer;
-    timer->prev = prev;
-    timer->next = NULL;
-    tail = timer;
+    timer_set.erase(it);
+    timer->cb_func(timer->user_data);
+    delete timer;
   }
 }
 
