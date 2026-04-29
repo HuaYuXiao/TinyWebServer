@@ -31,12 +31,21 @@ void connection_pool::init(const string &url, const string &User,
   m_PassWord = PassWord;
   m_DatabaseName = DBName;
 
+  void *ssl_session_data = nullptr;
+  unsigned int ssl_session_len = 0;
+
   for (int i = 0; i < MaxConn; ++i) {
     // 1. 初始化MySQL连接句柄
     MYSQL *mysql_conn = mysql_init(NULL);
     if (!mysql_conn) { // 必须检查返回值是否为NULL
       std::cerr << mysql_error(mysql_conn) << std::endl;
       exit(1);
+    }
+
+    // 复用首次连接缓存的 SSL session，后续连接使用 TLS session resumption
+    // 避免完整的 TLS 握手，仅做 abbreviated handshake
+    if (ssl_session_data) {
+      mysql_options(mysql_conn, MYSQL_OPT_SSL_SESSION_DATA, ssl_session_data);
     }
 
     // 2. 用初始化后的句柄连接数据库（依赖mysql_init的返回值）
@@ -54,8 +63,19 @@ void connection_pool::init(const string &url, const string &User,
       exit(1);
     }
 
+    // 缓存第一个连接的 SSL session 数据，供后续连接复用
+    if (i == 0) {
+      ssl_session_data =
+          mysql_get_ssl_session_data(mysql_conn, 0, &ssl_session_len);
+    }
+
     connList.emplace_back(mysql_conn);
     ++m_FreeConn;
+  }
+
+  // 释放本地 SSL session 引用（每个连接内部已持有独立拷贝）
+  if (ssl_session_data) {
+    mysql_free_ssl_session_data(connList.front(), ssl_session_data);
   }
 
   semaphore_.release(m_FreeConn);
@@ -79,6 +99,30 @@ MYSQL *connection_pool::GetConnection() {
 
     --m_FreeConn;
     ++m_CurConn;
+  }
+
+  // 连接健康检查：MySQL 服务器可能在空闲超时后断开连接
+  if (mysql_ping(mysql_conn) != 0) {
+    // 连接已失效，尝试重连
+    mysql_close(mysql_conn);
+    mysql_conn = mysql_init(NULL);
+    if (mysql_conn) {
+      if (!mysql_real_connect(mysql_conn, m_url.c_str(), m_User.c_str(),
+                              m_PassWord.c_str(), m_DatabaseName.c_str(),
+                              std::stoi(m_Port), NULL, 0)) {
+        mysql_close(mysql_conn);
+        mysql_conn = nullptr;
+      }
+    }
+
+    // 重连失败：归还信号量，避免线程池永久少一个槽位
+    if (!mysql_conn) {
+      {
+        std::lock_guard<std::mutex> lockGuard(lock);
+        --m_CurConn;
+      }
+      semaphore_.release();
+    }
   }
 
   return mysql_conn;
