@@ -241,7 +241,6 @@ http_conn::HTTP_CODE http_conn::process_read() {
          ((line_status = parse_line()) == LINE_OK)) {
     text = get_line();
     m_start_line = m_checked_idx;
-    std::cout << text << std::endl;
     switch (m_check_state) {
     case CHECK_STATE_REQUESTLINE: {
       ret = parse_request_line(text);
@@ -370,6 +369,9 @@ http_conn::HTTP_CODE http_conn::do_request() {
         m_cgi_response = "{\"error\":\"missing name or id_card\"}";
         return CGI_REQUEST;
       }
+
+      // 仅在 CGI 请求时才获取数据库连接（延迟获取）
+      connectionRAII mysqlcon(&mysql, connection_pool::GetInstance());
 
       char esc_name[256]{0};
       char esc_idcard[256]{0};
@@ -546,8 +548,6 @@ bool http_conn::add_response(const char *format, ...) {
   }
   m_write_idx += len;
   va_end(arg_list);
-
-  std::cout << "request:" << m_write_buf << std::endl;
 
   return true;
 }

@@ -101,9 +101,23 @@ MYSQL *connection_pool::GetConnection() {
     ++m_CurConn;
   }
 
-  // 连接健康检查：MySQL 服务器可能在空闲超时后断开连接
-  if (mysql_ping(mysql_conn) != 0) {
-    // 连接已失效，尝试重连
+  // 连接健康检查（带冷却时间，避免每次获取都 ping 造成 RTT 开销）
+  time_t now = time(NULL);
+  bool need_check = false;
+  {
+    std::lock_guard<std::mutex> health_lock(m_health_mutex);
+    auto it = m_last_health_check.find(mysql_conn);
+    if (it == m_last_health_check.end() || now - it->second > 60) {
+      need_check = true;
+    }
+  }
+
+  if (need_check && mysql_ping(mysql_conn) != 0) {
+    // 连接已失效，清理旧连接并重连
+    {
+      std::lock_guard<std::mutex> health_lock(m_health_mutex);
+      m_last_health_check.erase(mysql_conn);
+    }
     mysql_close(mysql_conn);
     mysql_conn = mysql_init(NULL);
     if (mysql_conn) {
@@ -122,7 +136,13 @@ MYSQL *connection_pool::GetConnection() {
         --m_CurConn;
       }
       semaphore_.release();
+      return mysql_conn;
     }
+  }
+
+  if (mysql_conn) {
+    std::lock_guard<std::mutex> health_lock(m_health_mutex);
+    m_last_health_check[mysql_conn] = now;
   }
 
   return mysql_conn;
@@ -161,6 +181,7 @@ connection_pool::~connection_pool() {
       connList.clear();
     }
   }
+  m_last_health_check.clear();
 }
 
 connectionRAII::connectionRAII(MYSQL **SQL, connection_pool *connPool) {

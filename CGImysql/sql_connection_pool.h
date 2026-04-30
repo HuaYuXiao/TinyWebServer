@@ -10,6 +10,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <string>
+#include <unordered_map>
 
 using namespace std;
 
@@ -36,6 +37,8 @@ private:
   std::mutex lock;
   std::deque<MYSQL *> connList; // 连接池
   std::counting_semaphore<MAX_CONN> semaphore_{0};
+  std::mutex m_health_mutex;
+  std::unordered_map<MYSQL *, time_t> m_last_health_check;
 
 public:
   string m_url;          // 主机地址
