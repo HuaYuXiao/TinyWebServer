@@ -1,26 +1,9 @@
-# Linux下高并发Web服务器
+# Linux 下高并发 Web 服务器
 
 * 使用 **epoll(LT)** 的模拟 Proactor 并发模型
-* 使用**状态机**解析HTTP请求报文，支持解析**GET和POST**请求
+* 使用**状态机**解析HTTP请求报文，支持解析**GET**和**POST**请求
 * 实现**同步/异步日志系统**，记录服务器运行状态
 * 经 Goroutine 压力测试，在 10000 并发连接下，可以达到 **8000QPS**
-
-## 概述
-
-> * [线程同步机制包装类](https://github.com/qinguoyi/TinyWebServer/tree/master/lock)
-> * [http连接请求处理类](https://github.com/qinguoyi/TinyWebServer/tree/master/http)
-> * [半同步/半反应堆线程池](https://github.com/qinguoyi/TinyWebServer/tree/master/threadpool)
-> * [定时器处理非活动连接](https://github.com/qinguoyi/TinyWebServer/tree/master/timer)
-> * [同步/异步日志系统 ](https://github.com/qinguoyi/TinyWebServer/tree/master/log)  
-> * [数据库连接池](https://github.com/qinguoyi/TinyWebServer/tree/master/CGImysql) 
-> * [同步线程注册和登录校验](https://github.com/qinguoyi/TinyWebServer/tree/master/CGImysql) 
-> * [简易服务器压力测试](https://github.com/qinguoyi/TinyWebServer/tree/master/test_presure)
-
-## 线程同步机制包装类
-
-多线程同步，确保任一时刻只能有一个线程能进入关键代码段.
-> * 信号量
-> * 互斥锁
 
 ## 框架
 
@@ -42,13 +25,13 @@
 
 使用 Goroutine 对服务器进行压力测试，可实现上万的并发连接
 
-```go
-go run pressureTest.go -c 10000 -d 60 -u http://localhost:9006
+```bash
+go run pressureTest.go -c 10000 -t 60 -url http://localhost:9006
 ```
 
 > * 并发连接总数：10000
 > * 访问服务器时间：60s
-> * 所有访问均成功
+> * 所有 POST 均成功
 
 ## TCP 状态检查
 
@@ -60,7 +43,6 @@ sudo netstat -anp | grep :9006 | awk '{print $6}' | sort | uniq -c
 
 ```bash
 sudo perf record -F 99 -a -p <PID> -g -- sleep 10
-perf report -i perf.data
 sudo perf script > perf.perf
 ./stackcollapse-perf.pl perf.perf > perf.folded
 ./flamegraph.pl perf.folded > perf.svg
