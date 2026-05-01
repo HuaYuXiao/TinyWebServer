@@ -1,6 +1,7 @@
 #include "http_conn.h"
 
 #include <fstream>
+#include <netinet/tcp.h>
 #include <mysql/mysql.h>
 
 // 定义http响应的一些状态信息
@@ -491,16 +492,18 @@ void http_conn::unmap() {
   }
 }
 bool http_conn::write() {
-  int temp = 0;
-
   if (bytes_to_send == 0) {
     modfd(m_epollfd, m_sockfd, EPOLLIN);
     init();
     return true;
   }
 
+  // 在 writev 循环前开启 TCP_CORK，告诉 TCP 栈先积累数据不要立即发送。直到全部数据写完（bytes_to_send <= 0）才清除 cork                   
+  int cork = 1;
+  setsockopt(m_sockfd, IPPROTO_TCP, TCP_CORK, &cork, sizeof(cork));
+
   while (1) {
-    temp = writev(m_sockfd, m_iv, m_iv_count);
+    int temp = writev(m_sockfd, m_iv, m_iv_count);
 
     if (temp < 0) {
       if (errno == EAGAIN) {
@@ -508,6 +511,8 @@ bool http_conn::write() {
         return true;
       }
       unmap();
+      cork = 0;
+      setsockopt(m_sockfd, IPPROTO_TCP, TCP_CORK, &cork, sizeof(cork));
       return false;
     }
 
@@ -524,6 +529,8 @@ bool http_conn::write() {
 
     if (bytes_to_send <= 0) {
       unmap();
+      cork = 0;
+      setsockopt(m_sockfd, IPPROTO_TCP, TCP_CORK, &cork, sizeof(cork));
       modfd(m_epollfd, m_sockfd, EPOLLIN);
 
       if (m_linger) {

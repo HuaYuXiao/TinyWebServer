@@ -1,7 +1,7 @@
 #ifndef THREADPOOL_H
 #define THREADPOOL_H
 
-#include "../CGImysql/sql_connection_pool.h"
+#include "../mysql/sql_connection_pool.h"
 #include <condition_variable>
 #include <cstdio>
 #include <deque>

@@ -22,7 +22,7 @@
 #include <thread>
 #include <unistd.h>
 
-#include "../CGImysql/sql_connection_pool.h"
+#include "../mysql/sql_connection_pool.h"
 #include "../timer/lst_timer.h"
 
 // 面向应用层，处理每个客户端的HTTP连接，包括解析HTTP请求、生成HTTP响应、管理连接状态等。
@@ -31,7 +31,8 @@ public:
   // Constants
   static const int FILENAME_LEN = 200;
   static const int READ_BUFFER_SIZE = 2048;
-  static const int WRITE_BUFFER_SIZE = 1024;
+  // 响应头缓冲区增大到 4KB，与典型内存页大小对齐，减少 add_response 因缓冲区满而失败的概率，也减少 writev 因 iovec 切分产生的碎片
+  static const int WRITE_BUFFER_SIZE = 4096;
 
   // Enumerations
   enum METHOD {
