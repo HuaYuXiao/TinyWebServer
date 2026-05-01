@@ -14,6 +14,7 @@
 #include <unistd.h>
 
 #include "./http/http_conn.h"
+#include "./redis/redis_cache.h"
 #include "./threadpool/threadpool.h"
 
 const int MAX_FD = 65536;           // 最大文件描述符
@@ -30,6 +31,7 @@ public:
 
   void thread_pool();
   void sql_pool();
+  void redis_pool();
   void eventListen();
   void eventLoop();
   void timer(int connfd, struct sockaddr_in client_address);
@@ -65,6 +67,15 @@ public:
 
   int m_listenfd;
   int m_OPT_LINGER;
+
+  // Redis 相关
+  redis_connection_pool *m_redisPool;
+  std::string m_redis_host;
+  int m_redis_port;
+  std::string m_redis_password;
+  int m_redis_pool_size;
+  int m_redis_db_index;
+  int m_cache_ttl;
 
   // 定时器相关
   std::unique_ptr<client_data[]> users_timer;

@@ -12,19 +12,32 @@ set(SOURCES
     config.cpp
     timer/lst_timer.cpp
     http/http_conn.cpp
-    CGImysql/sql_connection_pool.cpp
+    mysql/sql_connection_pool.cpp
+    redis/redis_connection_pool.cpp
+    redis/redis_cache.cpp
 )
 add_executable(server ${SOURCES})
 
 # Threads
 find_package(Threads REQUIRED)
+
 # MySQL client library
 find_library(MYSQLCLIENT_LIB mysqlclient)
-target_link_libraries(server PRIVATE Threads::Threads ${MYSQLCLIENT_LIB})
+
+# hiredis
+find_library(HIREDIS_LIB hiredis)
+
+target_link_libraries(server PRIVATE
+    Threads::Threads
+    ${MYSQLCLIENT_LIB}
+    ${HIREDIS_LIB}
+)
 
 # Include directories
 target_include_directories(server PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}
-    ${CMAKE_CURRENT_SOURCE_DIR}/CGImysql
+    ${CMAKE_CURRENT_SOURCE_DIR}/mysql
     ${CMAKE_CURRENT_SOURCE_DIR}/http
+    ${CMAKE_CURRENT_SOURCE_DIR}/redis
+    ${HIREDIS_INCLUDE_DIR}
 )

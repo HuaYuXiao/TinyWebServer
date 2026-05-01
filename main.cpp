@@ -22,6 +22,9 @@ int main(int argc, char *argv[]) {
   // 线程池
   server.thread_pool();
 
+  // Redis
+  server.redis_pool();
+
   // 监听
   server.eventListen();
 
