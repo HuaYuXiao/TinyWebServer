@@ -1,4 +1,6 @@
 #include "webserver.h"
+#include <cerrno>
+#include <cstring>
 
 WebServer::WebServer() {
   // http_conn类对象
@@ -10,6 +12,14 @@ WebServer::WebServer() {
 
   // 定时器
   users_timer = std::make_unique<client_data[]>(MAX_FD);
+
+  // Redis 默认配置
+  m_redis_host = "127.0.0.1";
+  m_redis_port = 6379;
+  m_redis_password = "";
+  m_redis_pool_size = 16;
+  m_redis_db_index = 0;
+  m_cache_ttl = 3600;
 }
 
 WebServer::~WebServer() {
@@ -34,6 +44,18 @@ void WebServer::sql_pool() {
   m_connPool = connection_pool::GetInstance();
   m_connPool->init("192.168.19.1", m_user, m_passWord, m_databaseName, 3306,
                    m_sql_num);
+}
+
+void WebServer::redis_pool() {
+  // 初始化 Redis 连接池
+  m_redisPool = redis_connection_pool::GetInstance();
+  m_redisPool->init(m_redis_host, m_redis_port, m_redis_password,
+                    m_redis_pool_size, m_redis_db_index);
+
+  // 初始化 Redis 缓存（含布隆过滤器 + 熔断器）
+  RedisCache::GetInstance()->init(m_redisPool);
+
+  std::cout << "[WebServer] Redis 缓存层初始化完成" << std::endl;
 }
 
 void WebServer::thread_pool() {
@@ -145,16 +167,31 @@ bool WebServer::dealclientdata() {
   struct sockaddr_in client_address;
   socklen_t client_addrlength = sizeof(client_address);
 
-  int connfd = accept(m_listenfd, (struct sockaddr *)&client_address,
-                      &client_addrlength);
-  if (connfd < 0) {
-    std::cerr << "accept error" << std::endl;
-    return false;
+  // 非阻塞 listen fd + epoll LT 模式：
+  // 一次 epoll 通知到来时，循环 accept 直到 EAGAIN，
+  // 避免 10K 并发下因逐次 accept 导致 backlog 溢出。
+  while (true) {
+    int connfd = accept(m_listenfd, (struct sockaddr *)&client_address,
+                        &client_addrlength);
+    if (connfd < 0) {
+      if (errno == EAGAIN || errno == EWOULDBLOCK)
+        break; // 已清空 backlog，正常
+      if (errno == EMFILE || errno == ENFILE) {
+        std::cerr << "accept error: too many open files" << std::endl;
+        break;
+      }
+      if (errno == ECONNABORTED || errno == EINTR)
+        continue; // 瞬态错误，重试
+      std::cerr << "accept error: " << strerror(errno) << std::endl;
+      break;
+    }
+
+    if (http_conn::m_user_count >= MAX_FD) {
+      close(connfd);
+      break;
+    }
+    timer(connfd, client_address);
   }
-  if (http_conn::m_user_count >= MAX_FD) {
-    return false;
-  }
-  timer(connfd, client_address);
   return true;
 }
 
