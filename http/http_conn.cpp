@@ -3,6 +3,7 @@
 #include <fstream>
 #include <netinet/tcp.h>
 #include <mysql/mysql.h>
+#include "redis/redis_cache.h"
 
 // 定义http响应的一些状态信息
 const char *ok_200_title = "OK";
@@ -60,7 +61,7 @@ int http_conn::m_epollfd = -1;
 // 关闭连接，关闭一个连接，客户总量减一
 void http_conn::close_conn(bool real_close) {
   if (real_close && (m_sockfd != -1)) {
-    printf("close %d\n", m_sockfd);
+    // printf("close %d\n", m_sockfd);
     removefd(m_epollfd, m_sockfd);
     m_sockfd = -1;
     m_user_count--;
@@ -371,98 +372,107 @@ http_conn::HTTP_CODE http_conn::do_request() {
         return CGI_REQUEST;
       }
 
-      // 仅在 CGI 请求时才获取数据库连接（延迟获取）
-      connectionRAII mysqlcon(&mysql, connection_pool::GetInstance());
+      // ── Redis 缓存 + MySQL 回退 ────────────────────────
+      // Cache Aside 模式：先查 Redis，命中直接返回，未命中查 DB 并回写缓存。
+      // RedisCache::get() 内部已包含三级防护：
+      //   1. 布隆过滤器防穿透  2. 熔断器容错降级  3. SETNX 互斥锁防击穿
+      std::string cache_key = "exam:score:" + name + ":" + id_card;
 
-      char esc_name[256]{0};
-      char esc_idcard[256]{0};
-      mysql_real_escape_string(mysql, esc_name, name.c_str(), name.size());
-      mysql_real_escape_string(mysql, esc_idcard, id_card.c_str(),
-                               id_card.size());
+      auto cached = RedisCache::GetInstance()->get(
+          cache_key,
+          // 缓存未命中回调：查 MySQL 并构建 JSON
+          [&]() -> std::optional<std::string> {
+            connectionRAII mysqlcon(&mysql, connection_pool::GetInstance());
 
-      char sql_query[2048]{0};
-      snprintf(sql_query, sizeof(sql_query),
-               "SELECT s.student_id, s.name, s.id_card, s.gender, s.province, "
-               "s.school, "
-               "subj.subject_name, sc.score "
-               "FROM student s "
-               "JOIN score sc ON sc.student_id = s.student_id "
-               "JOIN subject subj ON subj.subject_id = sc.subject_id "
-               "WHERE s.name='%s' AND s.id_card='%s';",
-               esc_name, esc_idcard);
+            char esc_name[256]{0};
+            char esc_idcard[256]{0};
+            mysql_real_escape_string(mysql, esc_name, name.c_str(), name.size());
+            mysql_real_escape_string(mysql, esc_idcard, id_card.c_str(),
+                                     id_card.size());
 
-      if (mysql_query(mysql, sql_query)) {
-        m_cgi_status = 500;
-        m_cgi_response = "{\"error\":\"mysql_query failed\"}";
-        return CGI_REQUEST;
-      }
+            char sql_query[2048]{0};
+            snprintf(sql_query, sizeof(sql_query),
+                     "SELECT s.student_id, s.name, s.id_card, s.gender, "
+                     "s.province, s.school, "
+                     "subj.subject_name, sc.score "
+                     "FROM student s "
+                     "JOIN score sc ON sc.student_id = s.student_id "
+                     "JOIN subject subj ON subj.subject_id = sc.subject_id "
+                     "WHERE s.name='%s' AND s.id_card='%s';",
+                     esc_name, esc_idcard);
 
-      MYSQL_RES *result = mysql_store_result(mysql);
-      if (!result) {
-        m_cgi_status = 500;
-        m_cgi_response = "{\"error\":\"mysql_store_result failed\"}";
-        return CGI_REQUEST;
-      }
+            if (mysql_query(mysql, sql_query))
+              return std::nullopt;
 
-      MYSQL_ROW row;
-      bool has_student = false;
-      std::string student_id, real_name, real_idcard, gender, province, school;
-      std::string scores_json;
-      bool first_score = true;
+            MYSQL_RES *result = mysql_store_result(mysql);
+            if (!result)
+              return std::nullopt;
 
-      while ((row = mysql_fetch_row(result))) {
-        auto cell = [&](int idx) -> std::string {
-          if (!row[idx])
-            return "";
-          return std::string(row[idx]);
-        };
+            MYSQL_ROW row;
+            bool has_student = false;
+            std::string student_id, real_name, real_idcard, gender, province, school;
+            std::string scores_json;
+            bool first_score = true;
 
-        if (!has_student) {
-          student_id = cell(0);
-          real_name = cell(1);
-          real_idcard = cell(2);
-          gender = cell(3);
-          province = cell(4);
-          school = cell(5);
-          has_student = true;
-        }
+            while ((row = mysql_fetch_row(result))) {
+              auto cell = [&](int idx) -> std::string {
+                if (!row[idx])
+                  return "";
+                return std::string(row[idx]);
+              };
 
-        std::string subject_name = cell(6);
-        std::string score_str = cell(7);
+              if (!has_student) {
+                student_id = cell(0);
+                real_name = cell(1);
+                real_idcard = cell(2);
+                gender = cell(3);
+                province = cell(4);
+                school = cell(5);
+                has_student = true;
+              }
 
-        if (!first_score)
-          scores_json += ",";
-        first_score = false;
+              std::string subject_name = cell(6);
+              std::string score_str = cell(7);
 
-        if (score_str.empty())
-          score_str = "0";
+              if (!first_score)
+                scores_json += ",";
+              first_score = false;
 
-        scores_json += "{\"subject\":\"" + json_escape(subject_name) +
-                       "\",\"score\":" + score_str + "}";
-      }
+              if (score_str.empty())
+                score_str = "0";
 
-      mysql_free_result(result);
+              scores_json += "{\"subject\":\"" + json_escape(subject_name) +
+                             "\",\"score\":" + score_str + "}";
+            }
 
-      if (!has_student) {
+            mysql_free_result(result);
+
+            if (!has_student)
+              return std::nullopt;
+
+            std::string json;
+            json += "{\"student\":{";
+            json += "\"student_id\":\"" + json_escape(student_id) + "\",";
+            json += "\"name\":\"" + json_escape(real_name) + "\",";
+            json += "\"id_card\":\"" + json_escape(real_idcard) + "\",";
+            json += "\"gender\":\"" + json_escape(gender) + "\",";
+            json += "\"province\":\"" + json_escape(province) + "\",";
+            json += "\"school\":\"" + json_escape(school) + "\"";
+            json += "},\"scores\":[";
+            json += scores_json;
+            json += "]}";
+
+            return json;
+          },
+          3600);
+
+      if (cached.has_value()) {
+        m_cgi_status = 200;
+        m_cgi_response = cached.value();
+      } else {
         m_cgi_status = 404;
         m_cgi_response = "{\"error\":\"student not found\"}";
-        return CGI_REQUEST;
       }
-
-      std::string json;
-      json += "{\"student\":{";
-      json += "\"student_id\":\"" + json_escape(student_id) + "\",";
-      json += "\"name\":\"" + json_escape(real_name) + "\",";
-      json += "\"id_card\":\"" + json_escape(real_idcard) + "\",";
-      json += "\"gender\":\"" + json_escape(gender) + "\",";
-      json += "\"province\":\"" + json_escape(province) + "\",";
-      json += "\"school\":\"" + json_escape(school) + "\"";
-      json += "},\"scores\":[";
-      json += scores_json;
-      json += "]}";
-
-      m_cgi_status = 200;
-      m_cgi_response = json;
       return CGI_REQUEST;
     }
   }
