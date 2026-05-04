@@ -5,11 +5,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Build
 
 ```bash
-# CMake (hiredis fetched automatically via FetchContent)
-mkdir -p build && cd build && cmake .. && cmake --build .
+mkdir -p build && cd build && cmake .. && cmake --build . -j$(nproc)
 ```
 
-The project requires C++20, thread, and `libmysqlclient`. CI runs on Ubuntu via `.github/workflows/cmake-single-platform.yml`.
+The project requires C++20, pthreads, `libmysqlclient`, and `libhiredis`. Both libraries are found via `find_library`/`find_package` in CMakeLists.txt (no FetchContent). CI runs on Ubuntu 24.04 via `.github/workflows/cmake-single-platform.yml` (Release build).
 
 ## Architecture
 
@@ -18,7 +17,7 @@ This is a high-concurrency HTTP server built on **epoll (LT mode)** using a **si
 ### Startup flow (`main.cpp` → `webserver.cpp`)
 
 1. `Config` parses CLI flags (`-p` port, `-s` SQL pool size, `-t` thread count, `-r` Redis pool size; defaults: 9006, 100, 64, 16)
-2. `WebServer::init()` stores config, then `sql_pool()` / `thread_pool()` / `redis_pool()` / `eventListen()` / `eventLoop()` are called in order
+2. `WebServer::init()` stores config, then `mysql_pool()` / `thread_pool()` / `redis_pool()` / `eventListen()` / `eventLoop()` are called in order
 
 ### Event loop (`webserver.cpp:244`)
 
@@ -45,7 +44,7 @@ State machine with three phases: `CHECK_STATE_REQUESTLINE` → `CHECK_STATE_HEAD
 
 Response is built with `process_write()` which assembles status line, headers, and body into `iovec` scatter/gather buffers for `writev`.
 
-### Thread pool (`threadpool/threadpool.h`)
+### Thread pool (`thread_pool/thread_pool.h`)
 
 Template class instantiated with `http_conn`. Uses `std::counting_semaphore` (max 100000) for work notification and a `std::deque` under a mutex for the work queue. Each worker acquires a DB connection via `connectionRAII` before calling `request->process()`. Threads are created via `std::thread` lambdas.
 
@@ -53,13 +52,13 @@ Template class instantiated with `http_conn`. Uses `std::counting_semaphore` (ma
 
 Uses `std::set<util_timer*, timer_cmp>` ordered by `expire` time (with pointer-address tiebreaker). `SIGALRM` fires every `TIMESLOT` (5s); `tick()` pops expired timers from the front. Connections expire 3×TIMESLOT (15s) after last activity. On each read/write, `adjust_timer()` removes and re-inserts the timer with a new expire time.
 
-### MySQL connection pool (`mysql/sql_connection_pool.cpp`)
+### MySQL connection pool (`mysql/mysql_pool.cpp`)
 
 Singleton (`GetInstance()` via local static). Protected by `std::counting_semaphore` for blocking acquire and `std::mutex` for deque access. `connectionRAII` acquires on construction and releases on destruction — workers use it to get a connection for the duration of `process()`.
 
 ### Redis caching layer (`redis/`)
 
-**Connection pool** (`redis_connection_pool.cpp`): Same singleton + RAII pattern as MySQL pool. Uses `std::counting_semaphore` for blocking acquire. Health-checks connections with PING every 60s; automatically reconnects on failure. If initialization fails, the server degrades gracefully to MySQL-only mode.
+**Connection pool** (`redis_pool.cpp`): Same singleton + RAII pattern as MySQL pool. Uses `std::counting_semaphore` for blocking acquire. Health-checks connections with PING every 60s; automatically reconnects on failure. If initialization fails, the server degrades gracefully to MySQL-only mode.
 
 **Cache** (`redis_cache.h/.cpp`): Singleton wrapping hiredis with three-tier protection:
 1. **Bloom filter** (cache penetration): `BloomFilter` (FNV-1a + std::hash dual-hash, default 1M elements @ 1% FP rate) rejects keys known not to exist, avoiding DB hits for malicious queries.
@@ -91,3 +90,11 @@ Perf flamegraph (commands in README.md).
 - Smart pointers preferred (`std::unique_ptr`, `std::make_unique`) for ownership of arrays and objects
 - RAII for resource management (connections, mmap regions)
 - `std::counting_semaphore` (C++20) for thread synchronization instead of POSIX semaphores
+
+## Formatting
+
+clang-format config at `.vscode/.clangfomat` (note: filename has a typo). Style: Google-based, 120-char column limit, 4-space indent, pointer alignment right, C++20 standard.
+
+## Docs
+
+`docs/accept-debug.md` details a past production bug where non-blocking LT epoll + single `accept()` per event caused backlog overflow under 10K concurrency. The fix (loop `accept` until `EAGAIN`) is already applied. Worth reading before modifying the event loop.

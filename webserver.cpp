@@ -39,16 +39,16 @@ void WebServer::init(int port, string user, string passWord,
   m_thread_num = thread_num;
 }
 
-void WebServer::sql_pool() {
+void WebServer::init_mysql_pool() {
   // 初始化数据库连接池
   m_connPool = connection_pool::GetInstance();
   m_connPool->init("192.168.19.1", m_user, m_passWord, m_databaseName, 3306,
                    m_sql_num);
 }
 
-void WebServer::redis_pool() {
+void WebServer::init_redis_pool() {
   // 初始化 Redis 连接池
-  m_redisPool = redis_connection_pool::GetInstance();
+  m_redisPool = redis_pool::GetInstance();
   m_redisPool->init(m_redis_host, m_redis_port, m_redis_password,
                     m_redis_pool_size, m_redis_db_index);
 
@@ -58,9 +58,9 @@ void WebServer::redis_pool() {
   std::cout << "[WebServer] Redis 缓存层初始化完成" << std::endl;
 }
 
-void WebServer::thread_pool() {
+void WebServer::init_thread_pool() {
   // 线程池（Proactor 模式）
-  m_pool = std::make_unique<threadpool<http_conn>>(m_connPool, m_thread_num);
+  m_pool = std::make_unique<thread_pool<http_conn>>(m_connPool, m_thread_num);
 }
 
 void WebServer::eventListen() {
@@ -177,12 +177,12 @@ bool WebServer::dealclientdata() {
       if (errno == EAGAIN || errno == EWOULDBLOCK)
         break; // 已清空 backlog，正常
       if (errno == EMFILE || errno == ENFILE) {
-        std::cerr << "accept error: too many open files" << std::endl;
+        // std::cerr << "accept error: too many open files" << std::endl;
         break;
       }
       if (errno == ECONNABORTED || errno == EINTR)
         continue; // 瞬态错误，重试
-      std::cerr << "accept error: " << strerror(errno) << std::endl;
+      // std::cerr << "accept error: " << strerror(errno) << std::endl;
       break;
     }
 

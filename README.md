@@ -54,22 +54,22 @@ mkdir -p build && cd build && cmake .. && cmake --build .
 ```
 .
 ├── main.cpp                        # 入口，串联各模块并启动事件循环
-├── webserver.cpp / webserver.h     # epoll 事件循环、连接管理、信号处理
-├── config.cpp / config.h           # CLI 参数解析与默认配置
-├── http/http_conn.cpp / .h         # HTTP 状态机解析 + writev 响应
-├── threadpool/threadpool.h         # 线程池模板（Proactor 消费者）
-├── timer/lst_timer.cpp / .h        # 定时器（std::set，到期连接清理）
-├── mysql/sql_connection_pool.cpp / .h  # MySQL 连接池（RAII）
+├── webserver     # epoll 事件循环、连接管理、信号处理
+├── config.cpp           # CLI 参数解析与默认配置
+├── http/http_conn         # HTTP 状态机解析 + writev 响应
+├── thread_pool/thread_pool         # 线程池模板（Proactor 消费者）
+├── timer/lst_timer        # 定时器（std::set，到期连接清理）
+├── mysql/mysql_pool  # MySQL 连接池（RAII）
 ├── redis/
-│   ├── redis_connection_pool.cpp / .h     # Redis 连接池（RAII + 健康检查）
-│   ├── redis_cache.cpp / .h               # 三级防护缓存工具类
-│   ├── bloom_filter.h                     # 布隆过滤器（防穿透）
-│   ├── circuit_breaker.h                  # 熔断器（CLOSED/OPEN/HALF_OPEN）
-│   └── exam_score_handler.h               # 业务层缓存集成示例
+│   ├── redis_pool     # Redis 连接池（RAII + 健康检查）
+│   ├── redis_cache               # 三级防护缓存工具类
+│   ├── bloom_filter                     # 布隆过滤器（防穿透）
+│   ├── circuit_breaker                  # 熔断器（CLOSED/OPEN/HALF_OPEN）
+│   └── exam_score_handler               # 业务层缓存集成示例
 └── root/                          # 静态文件根目录
 ```
 
-## Redis 缓存层（可选）
+## Redis 缓存层
 
 三级防护体系，对应 `redis/README.md`：
 
@@ -80,10 +80,10 @@ mkdir -p build && cd build && cmake .. && cmake --build .
 ## 压力测试
 
 ```bash
-go run pressureTest.go -c 10000 -t 60 -u http://localhost:9006/4
+go run pressureTest.go -c 10000 -t 60 -url http://localhost:9006/4
 ```
 
-经 10000 并发连接测试，可达 8000+ QPS。
+经 10000 并发连接测试，可达 20000+ QPS。
 
 ## perf 火焰图
 

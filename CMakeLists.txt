@@ -12,8 +12,8 @@ set(SOURCES
     config.cpp
     timer/lst_timer.cpp
     http/http_conn.cpp
-    mysql/sql_connection_pool.cpp
-    redis/redis_connection_pool.cpp
+    mysql/mysql_pool.cpp
+    redis/redis_pool.cpp
     redis/redis_cache.cpp
 )
 add_executable(server ${SOURCES})

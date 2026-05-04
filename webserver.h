@@ -15,7 +15,7 @@
 
 #include "./http/http_conn.h"
 #include "./redis/redis_cache.h"
-#include "./threadpool/threadpool.h"
+#include "./thread_pool/thread_pool.h"
 
 const int MAX_FD = 65536;           // 最大文件描述符
 const int MAX_EVENT_NUMBER = 10000; // 最大事件数
@@ -29,9 +29,9 @@ public:
   void init(int port, string user, string passWord, string databaseName,
             int sql_num, int thread_num);
 
-  void thread_pool();
-  void sql_pool();
-  void redis_pool();
+  void init_thread_pool();
+  void init_mysql_pool();
+  void init_redis_pool();
   void eventListen();
   void eventLoop();
   void timer(int connfd, struct sockaddr_in client_address);
@@ -59,7 +59,7 @@ public:
   int m_sql_num;
 
   // 线程池相关
-  std::unique_ptr<threadpool<http_conn>> m_pool;
+  std::unique_ptr<thread_pool<http_conn>> m_pool;
   int m_thread_num;
 
   // epoll_event相关
@@ -69,7 +69,7 @@ public:
   int m_OPT_LINGER;
 
   // Redis 相关
-  redis_connection_pool *m_redisPool;
+  redis_pool *m_redisPool;
   std::string m_redis_host;
   int m_redis_port;
   std::string m_redis_password;

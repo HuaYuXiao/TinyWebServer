@@ -12,7 +12,7 @@ RedisCache *RedisCache::GetInstance() {
   return &instance;
 }
 
-void RedisCache::init(redis_connection_pool *pool) { pool_ = pool; }
+void RedisCache::init(redis_pool *pool) { pool_ = pool; }
 
 // ── 随机 TTL ────────────────────────────────────────────────────────────
 

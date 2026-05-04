@@ -1,7 +1,7 @@
 #ifndef THREADPOOL_H
 #define THREADPOOL_H
 
-#include "../mysql/sql_connection_pool.h"
+#include "../mysql/mysql_pool.h"
 #include <condition_variable>
 #include <cstdio>
 #include <deque>
@@ -11,12 +11,12 @@
 #include <thread>
 #include <vector>
 
-template <typename T> class threadpool {
+template <typename T> class thread_pool {
 public:
   /*thread_number是线程池中线程的数量，max_requests是请求队列中最多允许的、等待处理的请求的数量*/
-  threadpool(connection_pool *connPool, int thread_number = 8,
+  thread_pool(connection_pool *connPool, int thread_number = 8,
              int max_request = 10000);
-  ~threadpool();
+  ~thread_pool();
   bool append_p(T *request);
 
 private:
@@ -36,7 +36,7 @@ private:
 };
 
 template <typename T>
-threadpool<T>::threadpool(connection_pool *connPool, int thread_number,
+thread_pool<T>::thread_pool(connection_pool *connPool, int thread_number,
                           int max_requests)
     : m_thread_number(thread_number), m_max_requests(max_requests),
       m_connPool(connPool) {
@@ -49,7 +49,7 @@ threadpool<T>::threadpool(connection_pool *connPool, int thread_number,
   }
 }
 
-template <typename T> threadpool<T>::~threadpool() {
+template <typename T> thread_pool<T>::~thread_pool() {
   {
     std::lock_guard<std::mutex> lock(m_queuelocker);
     m_stop = true;
@@ -62,7 +62,7 @@ template <typename T> threadpool<T>::~threadpool() {
   }
 }
 
-template <typename T> bool threadpool<T>::append_p(T *request) {
+template <typename T> bool thread_pool<T>::append_p(T *request) {
   {
     std::lock_guard<std::mutex> lock(m_queuelocker);
     if (m_workqueue.size() >= m_max_requests) {
@@ -74,13 +74,13 @@ template <typename T> bool threadpool<T>::append_p(T *request) {
   return true;
 }
 
-template <typename T> void *threadpool<T>::worker(void *arg) {
-  threadpool *pool = (threadpool *)arg;
+template <typename T> void *thread_pool<T>::worker(void *arg) {
+  thread_pool *pool = (thread_pool *)arg;
   pool->run();
   return pool;
 }
 
-template <typename T> void threadpool<T>::run() {
+template <typename T> void thread_pool<T>::run() {
   while (true) {
     T *request = nullptr;
     {

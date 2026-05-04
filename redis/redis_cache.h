@@ -10,7 +10,7 @@
 
 #include "bloom_filter.h"
 #include "circuit_breaker.h"
-#include "redis_connection_pool.h"
+#include "redis_pool.h"
 
 // Redis 缓存工具类 —— 考研成绩查询系统
 //
@@ -26,7 +26,7 @@ public:
   static RedisCache *GetInstance();
 
   // 初始化（须在 Redis 连接池 init 之后调用）
-  void init(redis_connection_pool *pool);
+  void init(redis_pool *pool);
 
   // ── 核心缓存操作 ────────────────────────────────────
 
@@ -78,7 +78,7 @@ private:
   // 随机 TTL: base ± 10%，防雪崩
   int random_ttl(int base_ttl) const;
 
-  redis_connection_pool *pool_ = nullptr;
+  redis_pool *pool_ = nullptr;
   BloomFilter bloom_filter_;
   CircuitBreaker circuit_breaker_;
   bool bloom_warmed_ = false;

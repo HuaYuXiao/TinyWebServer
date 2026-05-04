@@ -22,7 +22,7 @@
 #include <thread>
 #include <unistd.h>
 
-#include "../mysql/sql_connection_pool.h"
+#include "../mysql/mysql_pool.h"
 #include "../timer/lst_timer.h"
 
 // 面向应用层，处理每个客户端的HTTP连接，包括解析HTTP请求、生成HTTP响应、管理连接状态等。

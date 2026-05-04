@@ -17,13 +17,13 @@ int main(int argc, char *argv[]) {
               config.thread_num);
 
   // 数据库
-  server.sql_pool();
+  server.init_mysql_pool();
 
   // 线程池
-  server.thread_pool();
+  server.init_thread_pool();
 
   // Redis
-  server.redis_pool();
+  server.init_redis_pool();
 
   // 监听
   server.eventListen();

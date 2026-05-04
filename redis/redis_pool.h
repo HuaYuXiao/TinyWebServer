@@ -11,12 +11,12 @@
 
 const int MAX_REDIS_SEM = 10000;
 
-class redis_connection_pool {
+class redis_pool {
 public:
   redisContext *GetConnection();
   bool ReleaseConnection(redisContext *conn);
 
-  static redis_connection_pool *GetInstance();
+  static redis_pool *GetInstance();
 
   void init(const std::string &host, int port, const std::string &password,
             int max_conn, int db_index = 0);
@@ -24,8 +24,8 @@ public:
   bool is_initialized() const { return m_initialized; }
 
 private:
-  redis_connection_pool();
-  ~redis_connection_pool();
+  redis_pool();
+  ~redis_pool();
 
   int m_MaxConn;
   int m_CurConn;
@@ -49,12 +49,12 @@ private:
 class redisConnectionRAII {
 public:
   redisConnectionRAII(redisContext **redis_conn,
-                      redis_connection_pool *connPool);
+                      redis_pool *connPool);
   ~redisConnectionRAII();
 
 private:
   redisContext *conRAII;
-  redis_connection_pool *poolRAII;
+  redis_pool *poolRAII;
 };
 
 #endif

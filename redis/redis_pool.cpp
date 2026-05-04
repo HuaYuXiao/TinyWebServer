@@ -1,19 +1,19 @@
-#include "redis_connection_pool.h"
+#include "redis_pool.h"
 #include <deque>
 #include <iostream>
 #include <mutex>
 #include <string>
 #include <thread>
 
-redis_connection_pool::redis_connection_pool()
+redis_pool::redis_pool()
     : m_CurConn(0), m_FreeConn(0), m_MaxConn(0) {}
 
-redis_connection_pool *redis_connection_pool::GetInstance() {
-  static redis_connection_pool pool;
+redis_pool *redis_pool::GetInstance() {
+  static redis_pool pool;
   return &pool;
 }
 
-void redis_connection_pool::init(const std::string &host, int port,
+void redis_pool::init(const std::string &host, int port,
                                   const std::string &password, int max_conn,
                                   int db_index) {
   m_host = host;
@@ -68,7 +68,7 @@ void redis_connection_pool::init(const std::string &host, int port,
             << host << ":" << port << std::endl;
 }
 
-redisContext *redis_connection_pool::GetConnection() {
+redisContext *redis_pool::GetConnection() {
   // 未初始化 → 立即返回 nullptr，不阻塞
   if (!m_initialized) return nullptr;
 
@@ -138,7 +138,7 @@ redisContext *redis_connection_pool::GetConnection() {
   return ctx;
 }
 
-bool redis_connection_pool::ReleaseConnection(redisContext *ctx) {
+bool redis_pool::ReleaseConnection(redisContext *ctx) {
   if (!ctx) return false;
 
   {
@@ -151,7 +151,7 @@ bool redis_connection_pool::ReleaseConnection(redisContext *ctx) {
   return true;
 }
 
-redis_connection_pool::~redis_connection_pool() {
+redis_pool::~redis_pool() {
   {
     std::lock_guard<std::mutex> lockGuard(lock);
     for (redisContext *ctx : connList) {
@@ -164,7 +164,7 @@ redis_connection_pool::~redis_connection_pool() {
 }
 
 redisConnectionRAII::redisConnectionRAII(redisContext **redis_conn,
-                                          redis_connection_pool *connPool) {
+                                          redis_pool *connPool) {
   *redis_conn = connPool->GetConnection();
   conRAII = *redis_conn;
   poolRAII = connPool;
