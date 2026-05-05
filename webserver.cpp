@@ -105,7 +105,7 @@ void WebServer::eventListen() {
   assert(m_epollfd != -1);
 
   // 将监听套接字添加到 epoll 中，监听新连接事件（EPOLLIN）
-  utils.addfd(m_epollfd, m_listenfd, false);
+  utils.addfd(m_epollfd, m_listenfd);
   http_conn::m_epollfd = m_epollfd;
 
   // 使用 socketpair 创建一对 UNIX 域套接字，用于将异步信号转换为同步 epoll 事件
@@ -115,7 +115,7 @@ void WebServer::eventListen() {
   // 设置管道写端为非阻塞，避免信号处理阻塞
   utils.setNonBlocking(m_pipefd[1]);
   // 将管道读端添加到 epoll 中，监听信号事件（通过管道传递）
-  utils.addfd(m_epollfd, m_pipefd[0], false);
+  utils.addfd(m_epollfd, m_pipefd[0]);
 
   // 注册信号处理器：忽略 SIGPIPE（防止管道破裂导致程序崩溃）
   utils.addsig(SIGPIPE, SIG_IGN);

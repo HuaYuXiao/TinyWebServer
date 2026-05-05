@@ -72,8 +72,8 @@ public:
   // 对文件描述符设置非阻塞
   int setNonBlocking(int fd);
 
-  // 将内核事件表注册读事件（LT 模式），可选择开启 EPOLLONESHOT
-  void addfd(int epollfd, int fd, bool one_shot);
+  // 将内核事件表注册读事件（LT 模式），开启 EPOLLONESHOT
+  void addfd(int epollfd, int fd);
 
   // 信号处理函数
   static void sig_handler(int sig);

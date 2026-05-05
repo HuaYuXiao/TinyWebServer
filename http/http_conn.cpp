@@ -28,14 +28,11 @@ int setNonBlocking(int fd) {
   return fcntl(fd, F_SETFL, flags | O_NONBLOCK);
 }
 
-// 将内核事件表注册读事件（LT 模式），可选择开启 EPOLLONESHOT
-void addfd(int epollfd, int fd, bool one_shot) {
+// 将内核事件表注册读事件（LT 模式），开启 EPOLLONESHOT
+void addfd(int epollfd, int fd) {
   epoll_event event;
   event.data.fd = fd;
-  event.events = EPOLLIN | EPOLLRDHUP;
-
-  if (one_shot)
-    event.events |= EPOLLONESHOT;
+  event.events = EPOLLIN | EPOLLRDHUP | EPOLLONESHOT;
   epoll_ctl(epollfd, EPOLL_CTL_ADD, fd, &event);
   setNonBlocking(fd);
 }
@@ -74,7 +71,7 @@ void http_conn::init(int sockfd, const sockaddr_in &addr, char *root,
   m_sockfd = sockfd;
   m_address = addr;
 
-  addfd(m_epollfd, sockfd, true);
+  addfd(m_epollfd, sockfd);
   ++m_user_count;
 
   // 当浏览器出现连接重置时，可能是网站根目录出错或http响应格式出错或者访问的文件中内容完全为空
