@@ -84,7 +84,8 @@ void Utils::addsig(int sig, void(handler)(int), bool restart) {
   if (restart)
     sa.sa_flags |= SA_RESTART;
   sigfillset(&sa.sa_mask);
-  assert(sigaction(sig, &sa, NULL) != -1);
+  int ret = sigaction(sig, &sa, NULL);
+  assert(ret != -1);
 }
 
 // 定时处理任务，重新定时以不断触发SIGALRM信号

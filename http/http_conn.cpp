@@ -91,7 +91,7 @@ void http_conn::init() {
   bytes_to_send = 0;
   bytes_have_send = 0;
   m_check_state = CHECK_STATE_REQUESTLINE;
-  m_linger = false;
+  m_linger = true;
   m_method = GET;
   m_url = 0;
   m_version = 0;
@@ -207,6 +207,8 @@ http_conn::HTTP_CODE http_conn::parse_headers(char *text) {
     if (strcasecmp(text, "keep-alive") == 0) {
       m_linger = true;
     }
+  } else if (strcasecmp(text, "close") == 0) {
+    m_linger = false;
   } else if (strncasecmp(text, "Content-length:", 15) == 0) {
     text += 15;
     text += strspn(text, " \t");
