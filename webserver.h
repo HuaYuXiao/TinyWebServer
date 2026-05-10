@@ -27,7 +27,7 @@ public:
   ~WebServer();
 
   void init(int port, string user, string passWord, string databaseName,
-            int sql_num, int thread_num);
+            int sql_num, int thread_num, bool auth_enabled = true);
 
   void init_thread_pool();
   void init_mysql_pool();

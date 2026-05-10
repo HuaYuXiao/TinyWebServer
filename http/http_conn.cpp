@@ -3,7 +3,12 @@
 #include <fstream>
 #include <netinet/tcp.h>
 #include <mysql/mysql.h>
+#include "auth/jwt.h"
+#include "auth/password.h"
 #include "redis/redis_cache.h"
+
+// JWT 签名密钥（生产环境应从环境变量或配置文件读取）
+static const char *JWT_SECRET = "tinywebserver-jwt-secret-2024";
 
 // 定义http响应的一些状态信息
 const char *ok_200_title = "OK";
@@ -54,6 +59,7 @@ void removefd(int epollfd, int fd) {
 
 int http_conn::m_user_count = 0;
 int http_conn::m_epollfd = -1;
+bool http_conn::s_auth_enabled = true;
 
 // 关闭连接，关闭一个连接，客户总量减一
 void http_conn::close_conn(bool real_close) {
@@ -104,6 +110,10 @@ void http_conn::init() {
   cgi = 0;
   m_cgi_response.clear();
   m_cgi_status = 200;
+  m_auth_token.clear();
+  m_role.clear();
+  m_username.clear();
+  m_user_id = 0;
 
   memset(m_read_buf, '\0', READ_BUFFER_SIZE);
   memset(m_write_buf, '\0', WRITE_BUFFER_SIZE);
@@ -164,6 +174,12 @@ http_conn::HTTP_CODE http_conn::parse_request_line(char *text) {
   else if (strcasecmp(method, "POST") == 0) {
     m_method = POST;
     cgi = 1;
+  } else if (strcasecmp(method, "PUT") == 0) {
+    m_method = PUT;
+    cgi = 1;
+  } else if (strcasecmp(method, "DELETE") == 0) {
+    m_method = DELETE;
+    cgi = 1;
   } else
     return BAD_REQUEST;
   m_url += strspn(m_url, " \t");
@@ -217,6 +233,15 @@ http_conn::HTTP_CODE http_conn::parse_headers(char *text) {
     text += 5;
     text += strspn(text, " \t");
     m_host = text;
+  } else if (strncasecmp(text, "Authorization:", 14) == 0) {
+    text += 14;
+    text += strspn(text, " \t");
+    // 提取 "Bearer <token>"
+    const char *bearer = "Bearer ";
+    if (strncasecmp(text, bearer, 7) == 0) {
+      text += 7;
+      m_auth_token = text;
+    }
   }
 
   return NO_REQUEST;
@@ -278,8 +303,51 @@ http_conn::HTTP_CODE http_conn::do_request() {
   // printf("m_url:%s\n", m_url);
   const char *p = strrchr(m_url, '/');
 
+  // ── 认证已关闭：仅允许旧版 SELECT 路由 ────────────────────────
+  if (!s_auth_enabled) {
+    // /auth/* 和 /api/* 全部禁用
+    if (strncmp(m_url, "/auth/", 6) == 0 || strncmp(m_url, "/api/", 5) == 0) {
+      m_cgi_status = 403;
+      m_cgi_response = "{\"error\":\"auth is disabled\"}";
+      return CGI_REQUEST;
+    }
+    // /4 等旧路由继续走原有逻辑（无需令牌）
+  } else {
+
+  // ── /auth/* 认证路由（无需令牌） ──────────────────────────────
+  if (cgi == 1 && strncmp(m_url, "/auth/register", 14) == 0) {
+    return handle_register();
+  }
+  if (cgi == 1 && strncmp(m_url, "/auth/login", 11) == 0) {
+    return handle_login();
+  }
+
+  // ── /api/* CRUD 路由（需要 root 权限） ────────────────────────
+  if (cgi == 1 && strncmp(m_url, "/api/", 5) == 0) {
+    if (!verify_token())
+      return CGI_REQUEST;
+    if (!require_role("root"))
+      return CGI_REQUEST;
+    if (m_method == POST)
+      return handle_insert();
+    if (m_method == PUT)
+      return handle_update();
+    if (m_method == DELETE)
+      return handle_delete();
+    m_cgi_status = 405;
+    m_cgi_response = "{\"error\":\"method not allowed\"}";
+    return CGI_REQUEST;
+  }
+
+  } // end if (s_auth_enabled)
+
   // 处理cgi
   if (cgi == 1 && *(p + 1) == '4') {
+    // 认证开启时，成绩查询也需要登录
+    if (s_auth_enabled) {
+      if (!verify_token())
+        return CGI_REQUEST;
+    }
     if (*(p + 1) == '4') {
       auto hex_value = [](char c) -> int {
         if (c >= '0' && c <= '9')
@@ -494,6 +562,432 @@ http_conn::HTTP_CODE http_conn::do_request() {
   close(fd);
   return FILE_REQUEST;
 }
+
+// ── /auth/register ───────────────────────────────────────────────
+http_conn::HTTP_CODE http_conn::handle_register() {
+  auto hex_value = [](char c) -> int {
+    if (c >= '0' && c <= '9') return c - '0';
+    if (c >= 'a' && c <= 'f') return c - 'a' + 10;
+    if (c >= 'A' && c <= 'F') return c - 'A' + 10;
+    return -1;
+  };
+  auto url_decode = [&](const std::string &src) -> std::string {
+    std::string out;
+    out.reserve(src.size());
+    for (size_t i = 0; i < src.size(); ++i) {
+      char c = src[i];
+      if (c == '+')
+        out.push_back(' ');
+      else if (c == '%' && i + 2 < src.size()) {
+        int h1 = hex_value(src[i + 1]), h2 = hex_value(src[i + 2]);
+        if (h1 >= 0 && h2 >= 0) { out.push_back((char)(h1 * 16 + h2)); i += 2; }
+        else out.push_back(c);
+      } else out.push_back(c);
+    }
+    return out;
+  };
+  auto get_param = [&](const std::string &body, const char *key) -> std::string {
+    std::string k = std::string(key) + "=";
+    size_t pos = body.find(k);
+    if (pos == std::string::npos) return "";
+    pos += k.size();
+    size_t end = body.find('&', pos);
+    if (end == std::string::npos) end = body.size();
+    return url_decode(body.substr(pos, end - pos));
+  };
+
+  std::string body(m_string ? m_string : "");
+  std::string username = get_param(body, "username");
+  std::string password = get_param(body, "password");
+
+  if (username.empty() || password.empty()) {
+    m_cgi_status = 400;
+    m_cgi_response = "{\"error\":\"missing username or password\"}";
+    return CGI_REQUEST;
+  }
+  if (username.size() > 64 || password.size() > 128) {
+    m_cgi_status = 400;
+    m_cgi_response = "{\"error\":\"username or password too long\"}";
+    return CGI_REQUEST;
+  }
+
+  connectionRAII mysqlcon(&mysql, connection_pool::GetInstance());
+
+  // 检查用户名是否已存在
+  char esc_user[128]{0};
+  mysql_real_escape_string(mysql, esc_user, username.c_str(), username.size());
+  char check_sql[256];
+  snprintf(check_sql, sizeof(check_sql),
+           "SELECT id FROM server_users WHERE username='%s'", esc_user);
+  if (mysql_query(mysql, check_sql)) {
+    m_cgi_status = 500;
+    m_cgi_response = "{\"error\":\"internal error\"}";
+    return CGI_REQUEST;
+  }
+  MYSQL_RES *res = mysql_store_result(mysql);
+  if (res && mysql_num_rows(res) > 0) {
+    mysql_free_result(res);
+    m_cgi_status = 409;
+    m_cgi_response = "{\"error\":\"username already exists\"}";
+    return CGI_REQUEST;
+  }
+  if (res) mysql_free_result(res);
+
+  // 插入新用户
+  std::string hash = Password::hash(password);
+  char insert_sql[1024];
+  snprintf(insert_sql, sizeof(insert_sql),
+           "INSERT INTO server_users (username, password_hash, role) "
+           "VALUES ('%s', '%s', 'user')",
+           esc_user, hash.c_str());
+  if (mysql_query(mysql, insert_sql)) {
+    m_cgi_status = 500;
+    m_cgi_response = "{\"error\":\"internal error\"}";
+    return CGI_REQUEST;
+  }
+
+  // 签发 JWT
+  std::string token = JWT::sign(username, "user", JWT_SECRET);
+  m_cgi_status = 201;
+  m_cgi_response = "{\"token\":\"" + token + "\",\"role\":\"user\"}";
+  return CGI_REQUEST;
+}
+
+// ── /auth/login ──────────────────────────────────────────────────
+http_conn::HTTP_CODE http_conn::handle_login() {
+  auto hex_value = [](char c) -> int {
+    if (c >= '0' && c <= '9') return c - '0';
+    if (c >= 'a' && c <= 'f') return c - 'a' + 10;
+    if (c >= 'A' && c <= 'F') return c - 'A' + 10;
+    return -1;
+  };
+  auto url_decode = [&](const std::string &src) -> std::string {
+    std::string out;
+    out.reserve(src.size());
+    for (size_t i = 0; i < src.size(); ++i) {
+      char c = src[i];
+      if (c == '+')
+        out.push_back(' ');
+      else if (c == '%' && i + 2 < src.size()) {
+        int h1 = hex_value(src[i + 1]), h2 = hex_value(src[i + 2]);
+        if (h1 >= 0 && h2 >= 0) { out.push_back((char)(h1 * 16 + h2)); i += 2; }
+        else out.push_back(c);
+      } else out.push_back(c);
+    }
+    return out;
+  };
+  auto get_param = [&](const std::string &body, const char *key) -> std::string {
+    std::string k = std::string(key) + "=";
+    size_t pos = body.find(k);
+    if (pos == std::string::npos) return "";
+    pos += k.size();
+    size_t end = body.find('&', pos);
+    if (end == std::string::npos) end = body.size();
+    return url_decode(body.substr(pos, end - pos));
+  };
+
+  std::string body(m_string ? m_string : "");
+  std::string username = get_param(body, "username");
+  std::string password = get_param(body, "password");
+
+  if (username.empty() || password.empty()) {
+    m_cgi_status = 400;
+    m_cgi_response = "{\"error\":\"missing username or password\"}";
+    return CGI_REQUEST;
+  }
+
+  connectionRAII mysqlcon(&mysql, connection_pool::GetInstance());
+
+  char esc_user[128]{0};
+  mysql_real_escape_string(mysql, esc_user, username.c_str(), username.size());
+  char sql[512];
+  snprintf(sql, sizeof(sql),
+           "SELECT id, password_hash, role FROM server_users "
+           "WHERE username='%s' LIMIT 1",
+           esc_user);
+  if (mysql_query(mysql, sql)) {
+    m_cgi_status = 500;
+    m_cgi_response = "{\"error\":\"internal error\"}";
+    return CGI_REQUEST;
+  }
+
+  MYSQL_RES *result = mysql_store_result(mysql);
+  if (!result || mysql_num_rows(result) == 0) {
+    if (result) mysql_free_result(result);
+    m_cgi_status = 401;
+    m_cgi_response = "{\"error\":\"invalid username or password\"}";
+    return CGI_REQUEST;
+  }
+
+  MYSQL_ROW row = mysql_fetch_row(result);
+  std::string stored_hash = row[1] ? row[1] : "";
+  std::string role = row[2] ? row[2] : "user";
+  mysql_free_result(result);
+
+  if (!Password::verify(password, stored_hash)) {
+    m_cgi_status = 401;
+    m_cgi_response = "{\"error\":\"invalid username or password\"}";
+    return CGI_REQUEST;
+  }
+
+  std::string token = JWT::sign(username, role, JWT_SECRET);
+  m_cgi_status = 200;
+  m_cgi_response = "{\"token\":\"" + token + "\",\"role\":\"" + role + "\"}";
+  return CGI_REQUEST;
+}
+
+// ── 权限中间件 ───────────────────────────────────────────────────
+bool http_conn::verify_token() {
+  if (m_auth_token.empty()) {
+    m_cgi_status = 401;
+    m_cgi_response = "{\"error\":\"missing Authorization header\"}";
+    return false;
+  }
+  JWTClaims claims;
+  if (!JWT::verify(m_auth_token, JWT_SECRET, claims)) {
+    m_cgi_status = 401;
+    m_cgi_response = "{\"error\":\"invalid or expired token\"}";
+    return false;
+  }
+  m_role = claims.role;
+  m_username = claims.sub;
+  return true;
+}
+
+bool http_conn::require_role(const char *required) {
+  if (m_role != required) {
+    m_cgi_status = 403;
+    m_cgi_response = "{\"error\":\"forbidden: " +
+                     std::string(required) + " role required\"}";
+    return false;
+  }
+  return true;
+}
+
+void http_conn::write_audit_log(const char *operation, const char *target,
+                                const char *detail) {
+  connectionRAII mysqlcon(&mysql, connection_pool::GetInstance());
+  char esc_user[128]{0}, esc_target[256]{0}, esc_detail[4096]{0};
+  mysql_real_escape_string(mysql, esc_user,   m_username.c_str(), m_username.size());
+  mysql_real_escape_string(mysql, esc_target, target,  strlen(target));
+  mysql_real_escape_string(mysql, esc_detail, detail,  strlen(detail));
+  char sql[4608];
+  snprintf(sql, sizeof(sql),
+           "INSERT INTO audit_log (username, operation, target, detail) "
+           "VALUES ('%s','%s','%s','%s')",
+           esc_user, operation, esc_target, esc_detail);
+  mysql_query(mysql, sql); // best-effort, 不影响主流程
+}
+
+// ── URL 解码 / 表单参数提取（局部复用） ─────────────────────────
+static std::string url_decode_str(const std::string &src) {
+  auto hex_val = [](char c) -> int {
+    if (c >= '0' && c <= '9') return c - '0';
+    if (c >= 'a' && c <= 'f') return c - 'a' + 10;
+    if (c >= 'A' && c <= 'F') return c - 'A' + 10;
+    return -1;
+  };
+  std::string out;
+  out.reserve(src.size());
+  for (size_t i = 0; i < src.size(); ++i) {
+    char c = src[i];
+    if (c == '+') out.push_back(' ');
+    else if (c == '%' && i + 2 < src.size()) {
+      int h1 = hex_val(src[i + 1]), h2 = hex_val(src[i + 2]);
+      if (h1 >= 0 && h2 >= 0) { out.push_back((char)(h1 * 16 + h2)); i += 2; }
+      else out.push_back(c);
+    } else out.push_back(c);
+  }
+  return out;
+}
+
+static std::string get_form_param(const std::string &body, const char *key) {
+  std::string k = std::string(key) + "=";
+  size_t pos = body.find(k);
+  if (pos == std::string::npos) return "";
+  pos += k.size();
+  size_t end = body.find('&', pos);
+  if (end == std::string::npos) end = body.size();
+  return url_decode_str(body.substr(pos, end - pos));
+}
+
+// ── POST /api/student — 新增学生（root） ────────────────────────
+http_conn::HTTP_CODE http_conn::handle_insert() {
+  std::string body(m_string ? m_string : "");
+  std::string name     = get_form_param(body, "name");
+  std::string id_card  = get_form_param(body, "id_card");
+  std::string gender   = get_form_param(body, "gender");
+  std::string province = get_form_param(body, "province");
+  std::string school   = get_form_param(body, "school");
+
+  if (name.empty() || id_card.empty()) {
+    m_cgi_status = 400;
+    m_cgi_response = "{\"error\":\"name and id_card are required\"}";
+    return CGI_REQUEST;
+  }
+
+  connectionRAII mysqlcon(&mysql, connection_pool::GetInstance());
+
+  char esc_name[256]{0}, esc_idcard[256]{0};
+  char esc_gender[64]{0}, esc_province[128]{0}, esc_school[256]{0};
+  mysql_real_escape_string(mysql, esc_name,     name.c_str(),     name.size());
+  mysql_real_escape_string(mysql, esc_idcard,   id_card.c_str(),  id_card.size());
+  mysql_real_escape_string(mysql, esc_gender,   gender.c_str(),   gender.size());
+  mysql_real_escape_string(mysql, esc_province, province.c_str(), province.size());
+  mysql_real_escape_string(mysql, esc_school,   school.c_str(),   school.size());
+
+  char sql[2048];
+  snprintf(sql, sizeof(sql),
+           "INSERT INTO student (name, id_card, gender, province, school) "
+           "VALUES ('%s','%s','%s','%s','%s')",
+           esc_name, esc_idcard, esc_gender, esc_province, esc_school);
+
+  if (mysql_query(mysql, sql)) {
+    m_cgi_status = 500;
+    m_cgi_response = "{\"error\":\"insert failed: " +
+                     std::string(mysql_error(mysql)) + "\"}";
+    return CGI_REQUEST;
+  }
+
+  long long new_id = mysql_insert_id(mysql);
+
+  char audit_detail[1024];
+  snprintf(audit_detail, sizeof(audit_detail),
+           "{\"student_id\":%lld,\"name\":\"%s\"}", new_id, esc_name);
+  char audit_target[64];
+  snprintf(audit_target, sizeof(audit_target), "student#%lld", new_id);
+  write_audit_log("INSERT", audit_target, audit_detail);
+
+  m_cgi_status = 201;
+  m_cgi_response = "{\"student_id\":" + std::to_string(new_id) +
+                   ",\"message\":\"student created\"}";
+  return CGI_REQUEST;
+}
+
+// ── PUT /api/student — 修改学生（root） ─────────────────────────
+http_conn::HTTP_CODE http_conn::handle_update() {
+  std::string body(m_string ? m_string : "");
+  std::string sid      = get_form_param(body, "student_id");
+  std::string name     = get_form_param(body, "name");
+  std::string id_card  = get_form_param(body, "id_card");
+  std::string gender   = get_form_param(body, "gender");
+  std::string province = get_form_param(body, "province");
+  std::string school   = get_form_param(body, "school");
+
+  if (sid.empty()) {
+    m_cgi_status = 400;
+    m_cgi_response = "{\"error\":\"student_id is required\"}";
+    return CGI_REQUEST;
+  }
+
+  // 至少要有一个可更新字段
+  if (name.empty() && id_card.empty() && gender.empty() &&
+      province.empty() && school.empty()) {
+    m_cgi_status = 400;
+    m_cgi_response = "{\"error\":\"at least one field to update is required\"}";
+    return CGI_REQUEST;
+  }
+
+  connectionRAII mysqlcon(&mysql, connection_pool::GetInstance());
+
+  // 动态拼接 SET 子句
+  std::string set_clause;
+  char buf[512];
+
+  auto append_field = [&](const char *col, const std::string &val) {
+    if (val.empty()) return;
+    char esc[512]{0};
+    mysql_real_escape_string(mysql, esc, val.c_str(), val.size());
+    if (!set_clause.empty()) set_clause += ", ";
+    snprintf(buf, sizeof(buf), "%s='%s'", col, esc);
+    set_clause += buf;
+  };
+
+  append_field("name",     name);
+  append_field("id_card",  id_card);
+  append_field("gender",   gender);
+  append_field("province", province);
+  append_field("school",   school);
+
+  char esc_sid[32]{0};
+  mysql_real_escape_string(mysql, esc_sid, sid.c_str(), sid.size());
+
+  char sql[2048];
+  snprintf(sql, sizeof(sql),
+           "UPDATE student SET %s WHERE student_id='%s'",
+           set_clause.c_str(), esc_sid);
+
+  if (mysql_query(mysql, sql)) {
+    m_cgi_status = 500;
+    m_cgi_response = "{\"error\":\"update failed: " +
+                     std::string(mysql_error(mysql)) + "\"}";
+    return CGI_REQUEST;
+  }
+
+  unsigned long affected = mysql_affected_rows(mysql);
+  if (affected == 0) {
+    m_cgi_status = 404;
+    m_cgi_response = "{\"error\":\"student not found\"}";
+    return CGI_REQUEST;
+  }
+
+  char audit_target[64];
+  snprintf(audit_target, sizeof(audit_target), "student#%s", esc_sid);
+  char audit_detail[1024];
+  snprintf(audit_detail, sizeof(audit_detail),
+           "{\"set\":\"%s\",\"affected\":%lu}", set_clause.c_str(), affected);
+  write_audit_log("UPDATE", audit_target, audit_detail);
+
+  m_cgi_status = 200;
+  m_cgi_response = "{\"message\":\"student updated\",\"affected\":" +
+                   std::to_string(affected) + "}";
+  return CGI_REQUEST;
+}
+
+// ── DELETE /api/student — 删除学生（root） ──────────────────────
+http_conn::HTTP_CODE http_conn::handle_delete() {
+  std::string body(m_string ? m_string : "");
+  std::string sid = get_form_param(body, "student_id");
+
+  if (sid.empty()) {
+    m_cgi_status = 400;
+    m_cgi_response = "{\"error\":\"student_id is required\"}";
+    return CGI_REQUEST;
+  }
+
+  connectionRAII mysqlcon(&mysql, connection_pool::GetInstance());
+
+  char esc_sid[32]{0};
+  mysql_real_escape_string(mysql, esc_sid, sid.c_str(), sid.size());
+
+  char sql[512];
+  snprintf(sql, sizeof(sql),
+           "DELETE FROM student WHERE student_id='%s'", esc_sid);
+
+  if (mysql_query(mysql, sql)) {
+    m_cgi_status = 500;
+    m_cgi_response = "{\"error\":\"delete failed: " +
+                     std::string(mysql_error(mysql)) + "\"}";
+    return CGI_REQUEST;
+  }
+
+  unsigned long affected = mysql_affected_rows(mysql);
+  if (affected == 0) {
+    m_cgi_status = 404;
+    m_cgi_response = "{\"error\":\"student not found\"}";
+    return CGI_REQUEST;
+  }
+
+  char audit_target[64];
+  snprintf(audit_target, sizeof(audit_target), "student#%s", esc_sid);
+  write_audit_log("DELETE", audit_target, "{\"affected\":1}");
+
+  m_cgi_status = 200;
+  m_cgi_response = "{\"message\":\"student deleted\",\"affected\":" +
+                   std::to_string(affected) + "}";
+  return CGI_REQUEST;
+}
+
 void http_conn::unmap() {
   if (m_file_address) {
     munmap(m_file_address, m_file_stat.st_size);

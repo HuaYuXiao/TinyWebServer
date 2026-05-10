@@ -28,6 +28,9 @@ public:
   int redis_pool_size;   // Redis 连接池大小
   int redis_db_index;    // Redis 数据库编号 (0-15)
   int cache_ttl;         // 缓存基础 TTL（秒）
+
+  // ── 认证开关 ────────────────────────────────
+  bool auth_enabled;     // true=完整认证+CRUD, false=仅旧版 SELECT
 };
 
 #endif

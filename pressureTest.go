@@ -157,7 +157,7 @@ func cpuUsage(before, after CPUStats) (userPct, sysPct, iowaitPct float64) {
 func main() {
 	concurrency := flag.Int("c", 1, "并发连接数")
 	durationSec := flag.Int("t", 1, "测试持续时间/秒")
-	targetURL := flag.String("url", "http://127.0.0.1:9006/4", "目标服务器 URL")
+	targetURL := flag.String("url", "http://127.0.0.1:8080/4", "目标服务器 URL")
 	flag.Parse()
 
 	fmt.Printf("并发数: %d\n", *concurrency)

@@ -14,7 +14,7 @@ int main(int argc, char *argv[]) {
 
   // 初始化
   server.init(config.PORT, user, passwd, databasename, config.sql_num,
-              config.thread_num);
+              config.thread_num, config.auth_enabled);
 
   // 数据库
   server.init_mysql_pool();

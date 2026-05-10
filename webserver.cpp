@@ -30,13 +30,15 @@ WebServer::~WebServer() {
 }
 
 void WebServer::init(int port, string user, string passWord,
-                     string databaseName, int sql_num, int thread_num) {
+                     string databaseName, int sql_num, int thread_num,
+                     bool auth_enabled) {
   m_port = port;
   m_user = user;
   m_passWord = passWord;
   m_databaseName = databaseName;
   m_sql_num = sql_num;
   m_thread_num = thread_num;
+  http_conn::s_auth_enabled = auth_enabled;
 }
 
 void WebServer::init_mysql_pool() {
@@ -105,7 +107,13 @@ void WebServer::eventListen() {
   assert(m_epollfd != -1);
 
   // 将监听套接字添加到 epoll 中，监听新连接事件（EPOLLIN）
-  utils.addfd(m_epollfd, m_listenfd);
+  // 注意：监听 fd 不使用 EPOLLONESHOT，否则首次事件后会被禁用，导致无法接受新连接。
+  // 客户端 fd 才需要 EPOLLONESHOT（防止同一线程重复处理同一连接）。
+  epoll_event listen_ev{};
+  listen_ev.data.fd = m_listenfd;
+  listen_ev.events = EPOLLIN | EPOLLRDHUP;
+  epoll_ctl(m_epollfd, EPOLL_CTL_ADD, m_listenfd, &listen_ev);
+  utils.setNonBlocking(m_listenfd);
   http_conn::m_epollfd = m_epollfd;
 
   // 使用 socketpair 创建一对 UNIX 域套接字，用于将异步信号转换为同步 epoll 事件

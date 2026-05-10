@@ -96,6 +96,7 @@ public:
   // Public Members
   static int m_user_count; // Make m_user_count public
   static int m_epollfd;    // Make m_epollfd public
+  static bool s_auth_enabled; // 认证开关（false = 仅允许 SELECT）
 
   MYSQL *mysql; // Make mysql public
 
@@ -108,6 +109,15 @@ private:
   HTTP_CODE parse_headers(char *text);
   HTTP_CODE parse_content(char *text);
   HTTP_CODE do_request();
+  HTTP_CODE handle_register();
+  HTTP_CODE handle_login();
+  HTTP_CODE handle_insert();
+  HTTP_CODE handle_update();
+  HTTP_CODE handle_delete();
+  bool verify_token();
+  bool require_role(const char *required);
+  void write_audit_log(const char *operation, const char *target,
+                       const char *detail);
   char *get_line() { return m_read_buf + m_start_line; };
   LINE_STATUS parse_line();
   void unmap();
@@ -148,13 +158,17 @@ private:
   struct iovec m_iv[2];
   int m_iv_count;
 
-  int cgi;        // POST enabled
+  int cgi;        // POST/PUT/DELETE enabled (携带请求体)
   char *m_string; // Store request header data
   int bytes_to_send;
   int bytes_have_send;
   char *doc_root;
   std::string m_cgi_response;
   int m_cgi_status;
+  std::string m_auth_token; // Authorization: Bearer <token>
+  std::string m_role;       // 从令牌解析的角色: "user" | "root"
+  std::string m_username;   // 从令牌解析的用户名
+  int m_user_id = 0;        // 令牌中的用户 ID
 
   char sql_user[100];
   char sql_passwd[100];

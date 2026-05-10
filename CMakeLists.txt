@@ -27,10 +27,14 @@ find_library(MYSQLCLIENT_LIB mysqlclient)
 # hiredis
 find_library(HIREDIS_LIB hiredis)
 
+# OpenSSL (crypto) — PKCS5_PBKDF2_HMAC / RAND_bytes
+find_package(OpenSSL REQUIRED)
+
 target_link_libraries(server PRIVATE
     Threads::Threads
     ${MYSQLCLIENT_LIB}
     ${HIREDIS_LIB}
+    OpenSSL::Crypto
 )
 
 # Include directories
@@ -40,4 +44,16 @@ target_include_directories(server PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/http
     ${CMAKE_CURRENT_SOURCE_DIR}/redis
     ${HIREDIS_INCLUDE_DIR}
+)
+
+# ── 管理员种子工具 ────────────────────────────────────────────
+add_executable(seed_admin
+    tools/seed_admin.cpp
+)
+target_link_libraries(seed_admin PRIVATE
+    ${MYSQLCLIENT_LIB}
+    OpenSSL::Crypto
+)
+target_include_directories(seed_admin PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}
 )

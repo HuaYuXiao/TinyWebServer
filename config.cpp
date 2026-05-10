@@ -1,8 +1,8 @@
 #include "config.h"
 
 Config::Config() {
-  // 端口号,默认 9006
-  PORT = 9006;
+  // 端口号,默认 8080
+  PORT = 8080;
 
   // 数据库连接池数量,默认 100
   sql_num = 100;
@@ -17,11 +17,14 @@ Config::Config() {
   redis_pool_size = 16;
   redis_db_index = 0;
   cache_ttl = 3600;
+
+  // 认证默认开启
+  auth_enabled = true;
 }
 
 void Config::parse_arg(int argc, char *argv[]) {
   int opt;
-  const char *str = "p:s:t:r:";
+  const char *str = "p:s:t:r:a:";
   while ((opt = getopt(argc, argv, str)) != -1) {
     switch (opt) {
     case 'p': {
@@ -38,6 +41,10 @@ void Config::parse_arg(int argc, char *argv[]) {
     }
     case 'r': {
       redis_pool_size = atoi(optarg);
+      break;
+    }
+    case 'a': {
+      auth_enabled = atoi(optarg) != 0;
       break;
     }
     default:

@@ -26,7 +26,7 @@ void connection_pool::init(const string &url, const string &User,
                            const string &PassWord, const string &DBName,
                            int Port, int MaxConn) {
   m_url = url;
-  m_Port = Port;
+  m_Port = std::to_string(Port);
   m_User = User;
   m_PassWord = PassWord;
   m_DatabaseName = DBName;
@@ -41,6 +41,14 @@ void connection_pool::init(const string &url, const string &User,
       std::cerr << mysql_error(mysql_conn) << std::endl;
       exit(1);
     }
+
+    // 连接超时 3 秒，防止远端主机不可达时阻塞整个启动流程
+    unsigned int connect_timeout = 3;
+    mysql_options(mysql_conn, MYSQL_OPT_CONNECT_TIMEOUT, &connect_timeout);
+    // 读写超时 10 秒，防止查询挂起
+    unsigned int rw_timeout = 10;
+    mysql_options(mysql_conn, MYSQL_OPT_READ_TIMEOUT, &rw_timeout);
+    mysql_options(mysql_conn, MYSQL_OPT_WRITE_TIMEOUT, &rw_timeout);
 
     // 复用首次连接缓存的 SSL session，后续连接使用 TLS session resumption
     // 避免完整的 TLS 握手，仅做 abbreviated handshake
@@ -121,6 +129,12 @@ MYSQL *connection_pool::GetConnection() {
     mysql_close(mysql_conn);
     mysql_conn = mysql_init(NULL);
     if (mysql_conn) {
+      unsigned int connect_timeout = 3;
+      mysql_options(mysql_conn, MYSQL_OPT_CONNECT_TIMEOUT, &connect_timeout);
+      unsigned int rw_timeout = 10;
+      mysql_options(mysql_conn, MYSQL_OPT_READ_TIMEOUT, &rw_timeout);
+      mysql_options(mysql_conn, MYSQL_OPT_WRITE_TIMEOUT, &rw_timeout);
+
       if (!mysql_real_connect(mysql_conn, m_url.c_str(), m_User.c_str(),
                               m_PassWord.c_str(), m_DatabaseName.c_str(),
                               std::stoi(m_Port), NULL, 0)) {
