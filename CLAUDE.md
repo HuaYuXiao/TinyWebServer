@@ -46,7 +46,7 @@ Response is built with `process_write()` which assembles status line, headers, a
 
 ### Thread pool (`thread_pool/thread_pool.h`)
 
-Template class instantiated with `http_conn`. Uses `std::counting_semaphore` (max 100000) for work notification and a `std::deque` under a mutex for the work queue. Each worker acquires a DB connection via `connectionRAII` before calling `request->process()`. Threads are created via `std::thread` lambdas.
+Template class instantiated with `http_conn`. Uses `std::condition_variable` for work notification and a `std::deque` under a mutex for the work queue (max 10000 requests, `append_p` rejects when full). Each worker acquires a DB connection via `connectionRAII` before calling `request->process()`. Threads are created via `std::thread` lambdas in the constructor; `m_stop` flag + `notify_all` triggers graceful shutdown in the destructor.
 
 ### Timer (`timer/lst_timer.cpp`)
 
@@ -84,6 +84,25 @@ go run pressureTest.go -c 10000 -t 60 -u http://localhost:9006/4
 
 Perf flamegraph (commands in README.md).
 
+## Performance
+
+### Known bottlenecks (flamegraph analysis)
+
+Under 10K+ concurrency, the top CPU consumers are:
+
+1. **`WebServer::dealwithwrite` (47%)** — Proactor main thread handles all writes synchronously; `while(1)` writev loop blocks the epoll cycle. Limit loop iterations per epoll event.
+2. **`http_conn::write` (21%)** — iovec scatter/gather management per iteration; TCP_CORK is already applied to coalesce small packets.
+3. **`http_conn::process` (15%)** — CGI path redefines 4 lambdas per request, builds JSON via repeated `std::string +=` (multiple reallocs). Reserve capacity or use `std::ostringstream`.
+4. **`WebServer::dealwithread` (14%)** — single `recv` per epoll event in LT mode; incomplete reads require multiple epoll cycles. Loop `recv` until EAGAIN.
+5. **`http_conn::process_read` (13%)** — character-by-character `parse_line()` loop; use `memmem` for `\r\n\r\n` boundary scan.
+
+**Timer overhead** — `adjust_timer()` does `find+erase+insert` on `std::set` (3× O(log n) RB-tree ops) on every read/write. At 10K connections this is ~39 comparisons per call. Consider `std::set::extract` (C++17) or a priority-queue with lazy deletion.
+
+### Recent optimizations applied
+
+- **TCP_CORK** enabled in `http_conn::write()` — response headers + mmap body coalesced into fewer TCP segments before flushing. Disabled on completion or socket close.
+- **WRITE_BUFFER_SIZE** increased from 1024 to 4096 — reduces writev fragmentation, aligned to page size.
+
 ## C++ conventions
 
 - Standard: C++20 (`CMAKE_CXX_STANDARD 20`)
@@ -94,7 +113,3 @@ Perf flamegraph (commands in README.md).
 ## Formatting
 
 clang-format config at `.vscode/.clangfomat` (note: filename has a typo). Style: Google-based, 120-char column limit, 4-space indent, pointer alignment right, C++20 standard.
-
-## Docs
-
-`docs/accept-debug.md` details a past production bug where non-blocking LT epoll + single `accept()` per event caused backlog overflow under 10K concurrency. The fix (loop `accept` until `EAGAIN`) is already applied. Worth reading before modifying the event loop.
