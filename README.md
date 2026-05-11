@@ -78,17 +78,8 @@ sudo apt install libhiredis-dev libmysqlclient-dev libssl-dev
 ## 构建与运行
 
 ```bash
-# 构建
 mkdir -p build && cd build && cmake .. && cmake --build .
-
-# 从项目根目录运行
-./build/server
-
-# 自定义参数: 端口 8080, MySQL 池 100, 线程 64, Redis 池 8
-./build/server -p 8080 -s 100 -t 64 -r 8
-
-# 关闭认证（回退到纯 SELECT 模式，/auth/* 和 /api/* 返回 403）
-./build/server -a 0
+./build/server -p 8080 -s 100 -t 64 -r 8 -a 0
 ```
 
 ## CLI 参数
@@ -196,41 +187,6 @@ mysql -u user -p123456 server < sql/init.sql
 
 创建 `server_users`（用户表）和 `audit_log`（审计日志表），并预置 root 管理员（密码 `123456`）。
 
-也可以使用种子工具直接插入管理员：
-
-```bash
-# 输出 SQL 语句
-./build/seed_admin root 123456
-
-# 交互式，直接连接 MySQL 执行
-./build/seed_admin
-```
-
-## 项目结构
-
-```
-.
-├── main.cpp                         # 入口，串联各模块并启动事件循环
-├── webserver.cpp                    # epoll 事件循环、连接管理、信号处理
-├── config.cpp                       # CLI 参数解析与默认配置
-├── auth/
-│   ├── password.h                   # PBKDF2-HMAC-SHA256 密码哈希（纯头文件）
-│   └── jwt.h                        # JWT HS256 签发/验证（纯头文件）
-├── http/http_conn.cpp               # HTTP 状态机 + 认证路由 + CRUD 路由 + 审计日志
-├── thread_pool/thread_pool.h        # 线程池模板（Proactor 消费者）
-├── timer/lst_timer.cpp              # 定时器（std::set，到期连接清理）
-├── mysql/mysql_pool.cpp             # MySQL 连接池（RAII + SSL session 复用）
-├── redis/
-│   ├── redis_pool.cpp               # Redis 连接池（RAII + 健康检查）
-│   ├── redis_cache.cpp              # 三级防护缓存工具类
-│   ├── bloom_filter.h               # 布隆过滤器（防穿透）
-│   ├── circuit_breaker.h            # 熔断器（CLOSED/OPEN/HALF_OPEN）
-│   └── exam_score_handler.h         # 业务层缓存集成示例
-├── sql/init.sql                     # 用户表 + 审计日志表 DDL + 种子数据
-├── tools/seed_admin.cpp             # 管理员种子工具
-└── root/                            # 静态文件根目录
-```
-
 ## Redis 缓存层
 
 三级防护体系，对应 `redis/README.md`：
@@ -254,8 +210,8 @@ go run pressureTest.go -c <并发数> -t 60 -url http://localhost:8080/4
 | 5K | 1,949K | 99.81% | 32K | 161 ms | 201 ms | 246 ms | 307 ms |
 | 10K | 1,886K | 99.59% | 31K | 316 ms | 386 ms | 481 ms | 587 ms |
 | 20K | 1,738K | 99.16% | 28K | 700 ms | 858 ms | 1,606 ms | 1,652 ms |
-| 30K | 326K | 77.74% | 5.4K | 1,274 ms | 4,883 ms | 13 s | 17 s |
-| 50K | 277K | 39.12% | 4.5K | 1,894 ms | 15 s | 25 s | 31 ms |
+| 30K | 326K | 77.74% ↓ | 5.4K ↓ | 1,274 ms | 4,883 ms | 13 s | 17 s |
+| 50K | 277K | 39.12% ↓ | 4.5K ↓ | 1,894 ms | 15 s | 25 s | 31 ms |
 
 ## perf 火焰图
 
