@@ -46,11 +46,13 @@ Linux 下高并发 Web 服务器，C++20 实现。
 |:---|:---|:---|
 | **事件循环** | `webserver.cpp` | epoll LT 监听，统一事件源（信号→socketpair→epoll），accept 新连接，分发读写事件 |
 | **HTTP 状态机** | `http/http_conn.cpp` | 三阶段解析（请求行→头部→正文），路由分发，writev 响应 |
-| **线程池** | `thread_pool/thread_pool.h` | Proactor 消费者，`std::counting_semaphore` 通知，每个 worker 获取 DB 连接后执行 `process()` |
+| **线程池** | `thread_pool/thread_pool.h` | Proactor 消费者，`std::condition_variable` 通知（支持复合谓词优雅关停），每个 worker 获取 DB 连接后执行 `process()` |
 | **MySQL 连接池** | `mysql/mysql_pool.cpp` | 单例，RAII + semaphore 管理，SSL session 复用，60s 冷却健康检查 + 自动重连 |
 | **Redis 缓存层** | `redis/` | 三级防护（布隆过滤器→熔断器→互斥锁），Cache Aside 模式，随机 TTL 防雪崩 |
 | **认证模块** | `auth/` | PBKDF2-HMAC-SHA256 密码哈希（100K 迭代），HS256 JWT 签发/验证（24h TTL） |
+| **限流器** | `rate_limiter/` | 令牌桶 + 单例，按 (IP, 端点) 二元组限流，`accept()` 阶段即拦截连接洪水 |
 | **定时器** | `timer/lst_timer.cpp` | `std::set` 按过期时间排序，SIGALRM 每 5s 触发 tick，清理 15s 不活跃连接 |
+| **审计日志** | `http/http_conn.cpp` | root 的 INSERT/UPDATE/DELETE 操作自动写入 `audit_log` 表（best-effort） |
 
 ### 请求处理流程
 
@@ -58,6 +60,32 @@ Linux 下高并发 Web 服务器，C++20 实现。
 2. **认证路由**（POST `/auth/register`, `/auth/login`）— 从 `server_users` 表查询/插入用户，返回 JWT
 3. **成绩查询**（POST `/4`）— 先查 Redis 缓存，未命中则查 MySQL 并回写缓存，需携带 JWT
 4. **CRUD 操作**（POST/PUT/DELETE `/api/student`）— 需 root 角色 JWT，执行后写审计日志
+
+## 设计思路
+
+### 为什么 Proactor 而非 Reactor？
+
+| | Reactor | Proactor（本项目） |
+|:---|:---|:---|
+| I/O 执行者 | 工作线程自己 `read`/`write` | 主线程统一 `read`/`write` |
+| 线程模型 | 每个连接可能在不同线程处理 I/O | 主线程 I/O，工作线程纯计算 |
+| 适用场景 | I/O 与业务耦合紧密 | I/O 密集 + 业务计算可分离（Web 服务器） |
+
+本项目选择 Proactor：主线程专责 epoll + read/write，工作线程只跑 HTTP 解析和数据库查询。读写缓冲区与连接对象绑定（`http_conn`），主线程和工作线程之间只传递指针，**零数据拷贝**。
+
+### 为什么 epoll LT + EPOLLONESHOT 而非 ET？
+
+- **LT（水平触发）**：fd 就绪时会持续通知，即使某次没读完/没写完也不会丢事件。相比 ET 对应用层编程更宽容，不易出现 starvation。
+- **EPOLLONESHOT**：保证同一时刻只有一个线程操作同一个 fd。主线程完成一次 I/O 后，fd 从 epoll 移除，直到 `modfd()` 重新注册才再次触发。这避免了多线程环境下的连接竞态。
+
+代价是额外的 `epoll_ctl` 系统调用（火焰图 ~5%），换来连接状态一致性保障。
+
+### 为什么线程池用 `condition_variable` 而连接池用 `counting_semaphore`？
+
+- **线程池**：需要复合谓词 `m_stop || !m_workqueue.empty()`（有关停条件参与判断），`condition_variable` 天然支持。
+- **连接池**：语义是"有 N 个可用资源"，`counting_semaphore` 的 `acquire()`/`release()` 精确匹配，代码更简洁，且 futex 实现无假唤醒开销。
+
+两者各司其职，各自使用最适合的同步原语。
 
 ## 依赖
 
@@ -189,11 +217,28 @@ mysql -u user -p123456 server < sql/init.sql
 
 ## Redis 缓存层
 
-三级防护体系，对应 `redis/README.md`：
+三级防护体系：
 
-1. **防穿透** — 布隆过滤器（100 万元素 / 1% 误判率 / ~1.2 MB）+ 空值缓存（60s TTL）
-2. **防击穿** — SETNX 分布式互斥锁，仅一个线程重建缓存
+1. **防穿透** — 布隆过滤器（100 万元素 / 1% 误判率 / ~1.14 MB）+ 空值缓存（60s TTL）
+2. **防击穿** — SETNX 分布式互斥锁 + Double Check，仅一个线程重建缓存
 3. **防雪崩** — 随机 TTL 抖动 ±10%
+
+## 限流器（DDoS 防御）
+
+基于令牌桶算法的双层限流。为什么选令牌桶而非漏桶/固定窗口？
+
+- **漏桶**严格匀速不允许突发 → 压测场景下合法突发会被误杀
+- **固定窗口**存在窗口边界"翻倍"问题
+- **令牌桶**允许短时积攒 burst 个令牌应对突发，同时限制长时间平均速率，纯本地内存操作零网络开销
+
+两层拦截：
+
+| 层级 | 检查时机 | 效果 |
+|:---|:---|:---|
+| 连接级 | `accept()` 后立即检查 IP，拒绝则关闭 fd | 拦截 TCP 连接洪水（100/s + 200 burst） |
+| 请求级 | HTTP 解析后按端点检查 | 细粒度限流（register 2/s, login 5/s, api 10/s, global 50/s） |
+
+`cleanup_idle(120)` 在定时器 tick 中调用，淘汰 2 分钟无活动的 IP 条目，防止 `unordered_map` 无限膨胀。
 
 ## 压力测试
 
@@ -206,7 +251,7 @@ go run pressureTest.go -c <并发数> -t 60 -url http://localhost:8080/4
 | 并发连接 | 总请求 | 成功率 | QPS | P50 | P90 | P99 | P999 |
 |---:|---:|---:|---:|---:|---:|---:|---:|
 | 1K | 2,168K | 99.96% | 36K | 27 ms | 40 ms | 51 ms | 69 ms |
-| 2K | 1,839K | 99.91% | 30K | 65 ms | 8080 ms | 101 ms | 129 ms |
+| 2K | 1,839K | 99.91% | 30K | 65 ms | 80 ms | 101 ms | 129 ms |
 | 5K | 1,949K | 99.81% | 32K | 161 ms | 201 ms | 246 ms | 307 ms |
 | 10K | 1,886K | 99.59% | 31K | 316 ms | 386 ms | 481 ms | 587 ms |
 | 20K | 1,738K | 99.16% | 28K | 700 ms | 858 ms | 1,606 ms | 1,652 ms |

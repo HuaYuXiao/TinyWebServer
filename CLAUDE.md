@@ -10,9 +10,7 @@ mkdir -p build && cd build && cmake .. && cmake --build . -j$(nproc)
 
 The project requires C++20, pthreads, `libmysqlclient`, `libhiredis`, and `libcrypto` (OpenSSL). All found via `find_library`/`find_package` in CMakeLists.txt (no FetchContent). CI runs on Ubuntu 24.04 via `.github/workflows/cmake-single-platform.yml` (Release build).
 
-CMake produces two targets:
-- `server` — the main web server
-- `seed_admin` — CLI tool to hash passwords and seed the `server_users` table
+CMake produces one target: `server`.
 
 ## Architecture
 
@@ -70,7 +68,7 @@ JWT secret is hardcoded in `http_conn.cpp` as `JWT_SECRET` — production deploy
 
 ### Thread pool (`thread_pool/thread_pool.h`)
 
-Template class instantiated with `http_conn`. Uses `std::counting_semaphore` for work notification and a `std::deque` under a mutex for the work queue (max 10000 requests, `append_p` rejects when full). Each worker acquires a DB connection via `connectionRAII` before calling `request->process()`. Threads are created via `std::thread` lambdas; `m_stop` flag + `notify_all` triggers graceful shutdown.
+Template class instantiated with `http_conn`. Uses `std::condition_variable` for work notification and a `std::deque` under a mutex for the work queue (max 10000 requests, `append_p` rejects when full). Each worker acquires a DB connection via `connectionRAII` before calling `request->process()`. Threads are created via `std::thread` lambdas; `m_stop` flag + `notify_all` triggers graceful shutdown.
 
 ### Timer (`timer/lst_timer.cpp`)
 
@@ -93,6 +91,22 @@ On `init()`, the first connection's SSL session is cached via `mysql_get_ssl_ses
 
 TTL randomization (±10% jitter) prevents avalanche expiration. Null values are cached with a short TTL (60s) to prevent penetration.
 
+### Rate limiter (`rate_limiter/`)
+
+**`token_bucket.h`** — Token bucket algorithm for smooth rate limiting with burst support. `consume(cost)` refills tokens at `rate_` per second (max `burst_`), rejects if insufficient. Uses `std::chrono::steady_clock` for timing and per-bucket `std::mutex` for thread safety. Why token bucket over leaky bucket or fixed/sliding window: allows short bursts (burst of up to 200 tokens) while enforcing long-term average, with zero network overhead (local memory only).
+
+**`rate_limiter.h`** — Singleton managing per-IP token buckets keyed by `(endpoint, IP)` pair. Endpoint-specific rate/burst defaults:
+
+| Endpoint | Rate | Burst | Purpose |
+|:---|:---|:---|:---|
+| `register` | 2/s | 5 | Anti-registration flood |
+| `login` | 5/s | 10 | Anti-brute-force |
+| `api` | 10/s | 20 | Anti-CRUD abuse |
+| `connect` | 100/s | 200 | Connection-level flood defense (checked at `accept()` time) |
+| `global` | 50/s | 100 | /4 queries, static files |
+
+`cleanup_idle(120)` is called in the event loop after each timer tick to remove entries idle >2min, preventing unbounded memory growth. All public methods hold `std::mutex` for concurrent worker-thread access.
+
 ### Audit logging
 
 `write_audit_log()` is called after each successful INSERT/UPDATE/DELETE in the CRUD handlers. Writes to `audit_log` table (best-effort, does not affect main flow). Records: `username`, `operation`, `target` (table#id), `detail` (JSON summary).
@@ -114,6 +128,25 @@ go run pressureTest.go -c 10000 -t 60 -url http://localhost:8080/4
 ```
 
 Perf flamegraph (commands in README.md).
+
+## Performance
+
+### Known bottlenecks (flamegraph analysis)
+
+Under 10K+ concurrency, the top CPU consumers are:
+
+1. **`WebServer::dealwithwrite` (~47%)** — Proactor main thread handles all writes synchronously; `while(1)` writev loop blocks the epoll cycle.
+2. **`http_conn::write` (~21%)** — iovec scatter/gather management per iteration; TCP_CORK already applied to coalesce small packets.
+3. **`http_conn::process` (~15%)** — CGI path redefines 4 lambdas per request, builds JSON via repeated `std::string +=` (multiple reallocs).
+4. **`WebServer::dealwithread` (~14%)** — single `recv` per epoll event in LT mode; incomplete reads require multiple epoll cycles.
+5. **`http_conn::process_read` (~13%)** — character-by-character `parse_line()` loop; consider `memmem` for `\r\n\r\n` boundary scan.
+
+**Timer overhead** — `adjust_timer()` does `find+erase+insert` on `std::set` (3× O(log n) RB-tree ops) on every read/write. At 10K connections this is ~39 comparisons per call.
+
+### Recent optimizations applied
+
+- **TCP_CORK** enabled in `http_conn::write()` — response headers + mmap body coalesced into fewer TCP segments before flushing.
+- **WRITE_BUFFER_SIZE** increased from 1024 to 4096 — reduces writev fragmentation, aligned to page size.
 
 ## C++ conventions
 

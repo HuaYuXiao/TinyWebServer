@@ -1,4 +1,5 @@
 #include "webserver.h"
+#include "rate_limiter/rate_limiter.h"
 #include <cerrno>
 #include <cstring>
 
@@ -198,6 +199,19 @@ bool WebServer::dealclientdata() {
       close(connfd);
       break;
     }
+
+    // ── 连接级限流: accept 后检查 IP 是否允许建立新连接 ────────
+    {
+      std::string ip = RateLimiter::ip_to_str(client_address);
+      if (!RateLimiter::GetInstance()->allow_connection(ip)) {
+        // 发 RST 而不是 FIN，跳过 TIME_WAIT
+        struct linger l = {1, 0};
+        setsockopt(connfd, SOL_SOCKET, SO_LINGER, &l, sizeof(l));
+        close(connfd);
+        continue;
+      }
+    }
+
     timer(connfd, client_address);
   }
   return true;
@@ -306,7 +320,8 @@ void WebServer::eventLoop() {
     if (timeout) {
       utils.timer_handler();
 
-    //   std::cout << "timer tick" << std::endl;
+      // 每 5 秒清理一次超过 120 秒无活动的限流桶
+      RateLimiter::GetInstance()->cleanup_idle(120);
 
       timeout = false;
     }

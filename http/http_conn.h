@@ -92,6 +92,11 @@ public:
   bool read_once();
   bool write();
   sockaddr_in *get_address() { return &m_address; }
+  std::string get_client_ip() const {
+    char buf[INET_ADDRSTRLEN];
+    inet_ntop(AF_INET, &m_address.sin_addr, buf, sizeof(buf));
+    return buf;
+  }
 
   // Public Members
   static int m_user_count; // Make m_user_count public

@@ -3,6 +3,7 @@
 #include <fstream>
 #include <netinet/tcp.h>
 #include <mysql/mysql.h>
+#include "../rate_limiter/rate_limiter.h"
 #include "auth/jwt.h"
 #include "auth/password.h"
 #include "redis/redis_cache.h"
@@ -18,6 +19,7 @@ const char *error_400_form =
 const char *error_403_title = "Forbidden";
 const char *error_403_form =
     "You do not have permission to get file form this server.\n";
+const char *error_429_title = "Too Many Requests";
 const char *error_404_title = "Not Found";
 const char *error_404_form =
     "The requested file was not found on this server.\n";
@@ -302,6 +304,26 @@ http_conn::HTTP_CODE http_conn::do_request() {
   int len = strlen(doc_root);
   // printf("m_url:%s\n", m_url);
   const char *p = strrchr(m_url, '/');
+
+  // ── 限流检查（在 DB / Redis / 密码哈希之前拦截） ──────────────
+  {
+    std::string ip = get_client_ip();
+    std::string endpoint = "global";
+    // 根据 URL 前缀细分 endpoint 类型，各接口独立的限流桶
+    if (strncmp(m_url, "/auth/register", 14) == 0)
+      endpoint = "register";
+    else if (strncmp(m_url, "/auth/login", 11) == 0)
+      endpoint = "login";
+    else if (strncmp(m_url, "/api/", 5) == 0)
+      endpoint = "api";
+
+    if (!RateLimiter::GetInstance()->allow(ip, endpoint)) {
+      m_cgi_status = 429;
+      m_cgi_response =
+          "{\"error\":\"too many requests\",\"retry_after\":1}";
+      return CGI_REQUEST;
+    }
+  }
 
   // ── 认证已关闭：仅允许旧版 SELECT 路由 ────────────────────────
   if (!s_auth_enabled) {
@@ -1092,6 +1114,8 @@ bool http_conn::process_write(HTTP_CODE ret) {
       title = error_403_title;
     else if (m_cgi_status == 404)
       title = error_404_title;
+    else if (m_cgi_status == 429)
+      title = error_429_title;
     else if (m_cgi_status == 500)
       title = error_500_title;
 
