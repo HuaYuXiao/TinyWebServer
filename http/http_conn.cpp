@@ -8,8 +8,26 @@
 #include "auth/password.h"
 #include "redis/redis_cache.h"
 
-// JWT 签名密钥（生产环境应从环境变量或配置文件读取）
-static const char *JWT_SECRET = "tinywebserver-jwt-secret-2024";
+// JWT 签名密钥：优先从环境变量读取，无则用随机生成值（每次启动不同）
+static std::string get_jwt_secret() {
+  const char *env = getenv("JWT_SECRET");
+  if (env && env[0]) return std::string(env);
+  // 无环境变量时生成随机密钥，避免硬编码被提取
+  unsigned char rand_bytes[32];
+  if (RAND_bytes(rand_bytes, sizeof(rand_bytes)) != 1) {
+    exit(1);
+  }
+  std::string secret;
+  secret.reserve(64);
+  for (int i = 0; i < 32; ++i) {
+    static const char hex[] = "0123456789abcdef";
+    secret.push_back(hex[rand_bytes[i] >> 4]);
+    secret.push_back(hex[rand_bytes[i] & 0xf]);
+  }
+  return secret;
+}
+
+static const std::string JWT_SECRET = get_jwt_secret();
 
 // 定义http响应的一些状态信息
 const char *ok_200_title = "OK";
@@ -231,6 +249,8 @@ http_conn::HTTP_CODE http_conn::parse_headers(char *text) {
     text += 15;
     text += strspn(text, " \t");
     m_content_length = atol(text);
+    if (m_content_length < 0)
+      m_content_length = 0;                // 拒绝负值绕过 body 解析
   } else if (strncasecmp(text, "Host:", 5) == 0) {
     text += 5;
     text += strspn(text, " \t");
@@ -460,6 +480,12 @@ http_conn::HTTP_CODE http_conn::do_request() {
         m_cgi_response = "{\"error\":\"missing name or id_card\"}";
         return CGI_REQUEST;
       }
+      // 输入长度校验：mysql_real_escape_string 最坏 2×+1 膨胀，256 字节缓冲区安全上限 127 字符
+      if (name.size() > 127 || id_card.size() > 127) {
+        m_cgi_status = 400;
+        m_cgi_response = "{\"error\":\"name or id_card too long\"}";
+        return CGI_REQUEST;
+      }
 
       // ── Redis 缓存 + MySQL 回退 ────────────────────────
       // Cache Aside 模式：先查 Redis，命中直接返回，未命中查 DB 并回写缓存。
@@ -566,8 +592,15 @@ http_conn::HTTP_CODE http_conn::do_request() {
     }
   }
 
-  else
+  else {
+    // 防止目录穿越：拒绝包含 .. 的路径
+    if (strstr(m_url, "..") != nullptr) {
+      m_cgi_status = 403;
+      m_cgi_response = "{\"error\":\"forbidden\"}";
+      return CGI_REQUEST;
+    }
     strncpy(m_real_file + len, m_url, FILENAME_LEN - len - 1);
+  }
 
   if (stat(m_real_file, &m_file_stat) < 0)
     return NO_RESOURCE;
@@ -627,7 +660,7 @@ http_conn::HTTP_CODE http_conn::handle_register() {
     m_cgi_response = "{\"error\":\"missing username or password\"}";
     return CGI_REQUEST;
   }
-  if (username.size() > 64 || password.size() > 128) {
+  if (username.size() > 63 || password.size() > 128) {
     m_cgi_status = 400;
     m_cgi_response = "{\"error\":\"username or password too long\"}";
     return CGI_REQUEST;
@@ -636,6 +669,7 @@ http_conn::HTTP_CODE http_conn::handle_register() {
   connectionRAII mysqlcon(&mysql, connection_pool::GetInstance());
 
   // 检查用户名是否已存在
+  // esc_user[128] 安全容纳上限 = floor((128-1)/2) = 63 字符（mysql_real_escape_string 最坏 2×+1）
   char esc_user[128]{0};
   mysql_real_escape_string(mysql, esc_user, username.c_str(), username.size());
   char check_sql[256];
@@ -847,6 +881,13 @@ http_conn::HTTP_CODE http_conn::handle_insert() {
     m_cgi_response = "{\"error\":\"name and id_card are required\"}";
     return CGI_REQUEST;
   }
+  // mysql_real_escape_string 最坏 2×+1 膨胀，校验各字段不超过缓冲区安全上限
+  if (name.size() > 127 || id_card.size() > 127 || gender.size() > 31 ||
+      province.size() > 63 || school.size() > 127) {
+    m_cgi_status = 400;
+    m_cgi_response = "{\"error\":\"field too long\"}";
+    return CGI_REQUEST;
+  }
 
   connectionRAII mysqlcon(&mysql, connection_pool::GetInstance());
 
@@ -866,8 +907,7 @@ http_conn::HTTP_CODE http_conn::handle_insert() {
 
   if (mysql_query(mysql, sql)) {
     m_cgi_status = 500;
-    m_cgi_response = "{\"error\":\"insert failed: " +
-                     std::string(mysql_error(mysql)) + "\"}";
+    m_cgi_response = "{\"error\":\"insert failed\"}";
     return CGI_REQUEST;
   }
 
@@ -909,6 +949,13 @@ http_conn::HTTP_CODE http_conn::handle_update() {
     m_cgi_response = "{\"error\":\"at least one field to update is required\"}";
     return CGI_REQUEST;
   }
+  // mysql_real_escape_string 缓冲区安全上限检查
+  if (sid.size() > 15 || name.size() > 127 || id_card.size() > 127 ||
+      gender.size() > 31 || province.size() > 63 || school.size() > 127) {
+    m_cgi_status = 400;
+    m_cgi_response = "{\"error\":\"field too long\"}";
+    return CGI_REQUEST;
+  }
 
   connectionRAII mysqlcon(&mysql, connection_pool::GetInstance());
 
@@ -941,8 +988,7 @@ http_conn::HTTP_CODE http_conn::handle_update() {
 
   if (mysql_query(mysql, sql)) {
     m_cgi_status = 500;
-    m_cgi_response = "{\"error\":\"update failed: " +
-                     std::string(mysql_error(mysql)) + "\"}";
+    m_cgi_response = "{\"error\":\"update failed\"}";
     return CGI_REQUEST;
   }
 
@@ -976,6 +1022,11 @@ http_conn::HTTP_CODE http_conn::handle_delete() {
     m_cgi_response = "{\"error\":\"student_id is required\"}";
     return CGI_REQUEST;
   }
+  if (sid.size() > 15) {  // esc_sid[32] 安全上限 = (32-1)/2 ≈ 15
+    m_cgi_status = 400;
+    m_cgi_response = "{\"error\":\"student_id too long\"}";
+    return CGI_REQUEST;
+  }
 
   connectionRAII mysqlcon(&mysql, connection_pool::GetInstance());
 
@@ -988,8 +1039,7 @@ http_conn::HTTP_CODE http_conn::handle_delete() {
 
   if (mysql_query(mysql, sql)) {
     m_cgi_status = 500;
-    m_cgi_response = "{\"error\":\"delete failed: " +
-                     std::string(mysql_error(mysql)) + "\"}";
+    m_cgi_response = "{\"error\":\"delete failed\"}";
     return CGI_REQUEST;
   }
 
