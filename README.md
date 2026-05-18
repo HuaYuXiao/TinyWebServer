@@ -207,14 +207,6 @@ curl -X POST http://localhost:8080/api/student \
 - **密码安全**：密码最小 6 位，注册时前端校验两次输入一致，后端 PBKDF2 100K 迭代哈希存储
 - **错误处理**：401 自动跳转登录页清除 token，其他错误在页面内显示提示
 
-## 数据库初始化
-
-```bash
-mysql -u user -p123456 server < sql/init.sql
-```
-
-创建 `server_users`（用户表）和 `audit_log`（审计日志表），并预置 root 管理员（密码 `123456`）。
-
 ## Redis 缓存层
 
 三级防护体系：
@@ -267,7 +259,7 @@ sudo perf script > perf.perf
 ./flamegraph.pl perf.folded > perf.svg
 ```
 
-![perf](log/perf.svg)
+![perf](build/perf.svg)
 
 ## TCP 连接状态
 

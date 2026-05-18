@@ -51,8 +51,6 @@ public:
         "SELECT CONCAT(name, ':', REPLACE(id_card, ' ', '')) FROM student";
 
     if (mysql_query(mysql, sql.c_str())) {
-      std::cerr << "[ExamScore] 布隆预热查询失败: " << mysql_error(mysql)
-                << std::endl;
       return;
     }
 
@@ -94,8 +92,6 @@ private:
         << "AND REPLACE(s.id_card, ' ', '') = '" << id_esc << "'";
 
     if (mysql_query(mysql, sql.str().c_str())) {
-      std::cerr << "[ExamScore] MySQL 查询失败: " << mysql_error(mysql)
-                << std::endl;
       return std::nullopt;
     }
 

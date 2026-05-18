@@ -1,6 +1,6 @@
 #include "redis_pool.h"
+#include "log/log.h"
 #include <deque>
-#include <iostream>
 #include <mutex>
 #include <string>
 #include <thread>
@@ -26,13 +26,15 @@ void redis_pool::init(const std::string &host, int port,
     redisContext *ctx = redisConnectWithTimeout(host.c_str(), port, timeout);
     if (!ctx || ctx->err) {
       if (ctx) {
-        std::cerr << "[Redis] 连接失败: " << ctx->errstr << std::endl;
+        redisFree(ctx);
+      }
+      if (ctx) {
+        LOG_WARN("Redis connection failed: %s", ctx->errstr);
         redisFree(ctx);
       } else {
-        std::cerr << "[Redis] 无法分配连接上下文" << std::endl;
+        LOG_WARN("Redis connection failed: cannot allocate context");
       }
-      // 连接失败不退出，标记未初始化，后续降级到 DB 直连
-      std::cerr << "[Redis] 缓存层初始化失败，将降级为纯 MySQL 模式" << std::endl;
+      LOG_WARN("Redis pool init failed, server will degrade to MySQL-only");
       return;
     }
 
@@ -41,7 +43,6 @@ void redis_pool::init(const std::string &host, int port,
       redisReply *reply =
           static_cast<redisReply *>(redisCommand(ctx, "AUTH %s", password.c_str()));
       if (!reply || reply->type == REDIS_REPLY_ERROR) {
-        std::cerr << "[Redis] AUTH 失败" << std::endl;
         if (reply) freeReplyObject(reply);
         redisFree(ctx);
         return;
@@ -63,9 +64,7 @@ void redis_pool::init(const std::string &host, int port,
   semaphore_.release(m_FreeConn);
   m_MaxConn = m_FreeConn;
   m_initialized = true;
-
-  std::cout << "[Redis] 连接池初始化完成: " << m_FreeConn << " 个连接, "
-            << host << ":" << port << std::endl;
+  LOG_INFO("Redis pool initialized: %d connections", m_FreeConn);
 }
 
 redisContext *redis_pool::GetConnection() {
@@ -109,7 +108,6 @@ redisContext *redis_pool::GetConnection() {
       ctx = redisConnectWithTimeout(m_host.c_str(), m_port, timeout);
       if (!ctx || ctx->err) {
         if (ctx) {
-          std::cerr << "[Redis] 重连失败: " << ctx->errstr << std::endl;
           redisFree(ctx);
         }
         ctx = nullptr;

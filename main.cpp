@@ -1,7 +1,16 @@
 #include "config.h"
+#include "log/log.h"
 
 int main(int argc, char *argv[]) {
-  // 需要修改的数据库信息,登录名,密码,库名
+  // 日志初始化
+  auto &logger = app_log::Logger::instance();
+  logger.init(app_log::Level::INFO);
+  logger.set_source_root("/home/user/TinyWebServer/");
+  logger.add_console(true);
+  logger.add_file("/home/user/TinyWebServer/build", 100, 10);
+
+  LOG_INFO("========== TinyWebServer starting ==========");
+
   string user = "user";
   string passwd = "123456";
   string databasename = "server";
@@ -15,6 +24,10 @@ int main(int argc, char *argv[]) {
   // 初始化
   server.init(config.PORT, user, passwd, databasename, config.sql_num,
               config.thread_num, config.auth_enabled);
+
+  LOG_INFO("Config: port=%d, sql_pool=%d, threads=%d, redis_pool=%d, auth=%s",
+           config.PORT, config.sql_num, config.thread_num,
+           config.redis_pool_size, config.auth_enabled ? "on" : "off");
 
   // 数据库
   server.init_mysql_pool();

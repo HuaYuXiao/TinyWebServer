@@ -1,5 +1,6 @@
 #include "webserver.h"
 #include "rate_limiter/rate_limiter.h"
+#include "log/log.h"
 #include <cerrno>
 #include <cstring>
 
@@ -43,27 +44,28 @@ void WebServer::init(int port, string user, string passWord,
 }
 
 void WebServer::init_mysql_pool() {
-  // 初始化数据库连接池
+  LOG_INFO("Initializing MySQL connection pool (%d connections)", m_sql_num);
   m_connPool = connection_pool::GetInstance();
   m_connPool->init("192.168.19.1", m_user, m_passWord, m_databaseName, 3306,
                    m_sql_num);
+  LOG_INFO("MySQL connection pool initialized successfully");
 }
 
 void WebServer::init_redis_pool() {
-  // 初始化 Redis 连接池
+  LOG_INFO("Initializing Redis connection pool (host=%s, port=%d, pool=%d)",
+           m_redis_host.c_str(), m_redis_port, m_redis_pool_size);
   m_redisPool = redis_pool::GetInstance();
   m_redisPool->init(m_redis_host, m_redis_port, m_redis_password,
                     m_redis_pool_size, m_redis_db_index);
 
-  // 初始化 Redis 缓存（含布隆过滤器 + 熔断器）
   RedisCache::GetInstance()->init(m_redisPool);
-
-  std::cout << "[WebServer] Redis 缓存层初始化完成" << std::endl;
+  LOG_INFO("Redis cache layer initialized (bloom + circuit_breaker)");
 }
 
 void WebServer::init_thread_pool() {
-  // 线程池（Proactor 模式）
+  LOG_INFO("Initializing thread pool (%d threads)", m_thread_num);
   m_pool = std::make_unique<thread_pool<http_conn>>(m_connPool, m_thread_num);
+  LOG_INFO("Thread pool initialized");
 }
 
 void WebServer::eventListen() {
@@ -138,6 +140,9 @@ void WebServer::eventListen() {
   // 设置工具类的全局管道和 epoll 描述符，便于信号处理器访问
   Utils::u_pipefd = m_pipefd;
   Utils::u_epollfd = m_epollfd;
+
+  LOG_INFO("Server listening on 0.0.0.0:%d (auth=%s)", m_port,
+           http_conn::s_auth_enabled ? "on" : "off");
 }
 
 void WebServer::timer(int connfd, struct sockaddr_in client_address) {
@@ -168,8 +173,6 @@ void WebServer::deal_timer(util_timer *timer, int sockfd) {
   if (timer) {
     utils.m_timer_lst.del_timer(timer);
   }
-
-//   std::cout << "close fd " << users_timer[sockfd].sockfd << std::endl;
 }
 
 bool WebServer::dealclientdata() {
@@ -186,12 +189,10 @@ bool WebServer::dealclientdata() {
       if (errno == EAGAIN || errno == EWOULDBLOCK)
         break; // 已清空 backlog，正常
       if (errno == EMFILE || errno == ENFILE) {
-        // std::cerr << "accept error: too many open files" << std::endl;
         break;
       }
       if (errno == ECONNABORTED || errno == EINTR)
         continue; // 瞬态错误，重试
-      // std::cerr << "accept error: " << strerror(errno) << std::endl;
       break;
     }
 
@@ -205,6 +206,7 @@ bool WebServer::dealclientdata() {
       std::string ip = RateLimiter::ip_to_str(client_address);
       if (!RateLimiter::GetInstance()->allow_connection(ip)) {
         // 发 RST 而不是 FIN，跳过 TIME_WAIT
+          LOG_WARN("Rate limit — rejected connection from %s", ip.c_str());
         struct linger l = {1, 0};
         setsockopt(connfd, SOL_SOCKET, SO_LINGER, &l, sizeof(l));
         close(connfd);
@@ -248,10 +250,6 @@ void WebServer::dealwithread(int sockfd) {
 
   // Proactor 模式：主线程完成读操作后，将请求交给线程池处理
   if (users[sockfd].read_once()) {
-    // std::cout << "deal with the client("
-    //           << inet_ntoa(users[sockfd].get_address()->sin_addr) << ")"
-    //           << std::endl;
-
     // 将该事件放入请求队列
     m_pool->append_p(users.get() + sockfd);
 
@@ -268,10 +266,6 @@ void WebServer::dealwithwrite(int sockfd) {
 
   // Proactor 模式：主线程完成写操作
   if (users[sockfd].write()) {
-    // std::cout << "send data to the client("
-    //           << inet_ntoa(users[sockfd].get_address()->sin_addr) << ")"
-    //           << std::endl;
-
     if (timer) {
       adjust_timer(timer);
     }
@@ -287,7 +281,7 @@ void WebServer::eventLoop() {
   while (!stop_server) {
     int number = epoll_wait(m_epollfd, events, MAX_EVENT_NUMBER, -1);
     if (number < 0 && errno != EINTR) {
-      std::cerr << "epoll failure" << std::endl;
+      LOG_ERROR("epoll_wait failed: %s", strerror(errno));
       break;
     }
 
@@ -307,8 +301,6 @@ void WebServer::eventLoop() {
       // 处理信号
       else if ((sockfd == m_pipefd[0]) && (events[i].events & EPOLLIN)) {
         bool flag = dealwithsignal(timeout, stop_server);
-        if (!flag)
-          std::cerr << "dealclientdata failure" << std::endl;
       }
       // 处理客户连接上接收到的数据
       else if (events[i].events & EPOLLIN) {
@@ -326,4 +318,5 @@ void WebServer::eventLoop() {
       timeout = false;
     }
   }
+  LOG_INFO("Server stopped");
 }

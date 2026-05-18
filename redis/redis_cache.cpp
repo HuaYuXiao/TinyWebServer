@@ -1,9 +1,9 @@
 #include "redis_cache.h"
+#include "log/log.h"
 
 #include <chrono>
 #include <cstdlib>
 #include <cstring>
-#include <iostream>
 #include <random>
 #include <thread>
 
@@ -32,8 +32,7 @@ void RedisCache::warm_bloom(const std::vector<std::string> &keys) {
     bloom_filter_.insert(key);
   }
   bloom_warmed_ = true;
-  std::cout << "[RedisCache] 布隆过滤器预热完成: " << keys.size() << " 个键"
-            << std::endl;
+  LOG_INFO("Bloom filter warmed: %zu keys", keys.size());
 }
 
 // ── 底层 Redis 操作 ─────────────────────────────────────────────────────

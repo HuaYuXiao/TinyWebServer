@@ -8,7 +8,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 mkdir -p build && cd build && cmake .. && cmake --build . -j$(nproc)
 ```
 
-The project requires C++20, pthreads, `libmysqlclient`, `libhiredis`, and `libcrypto` (OpenSSL). All found via `find_library`/`find_package` in CMakeLists.txt (no FetchContent). CI runs on Ubuntu 24.04 via `.github/workflows/cmake-single-platform.yml` (Release build).
+The project requires C++20, pthreads, `libmysqlclient`, `libhiredis`, and `libcrypto` (OpenSSL). Libraries found via `find_library`/`find_package` in CMakeLists.txt (no FetchContent). CI runs on Ubuntu 24.04 via `.github/workflows/cmake-single-platform.yml` (Release build).
 
 CMake produces one target: `server`.
 
@@ -24,13 +24,13 @@ This is a high-concurrency HTTP server built on **epoll (LT mode)** using a **si
 ### Event loop (`webserver.cpp:261`)
 
 `epoll_wait` blocks indefinitely, handling these event types in priority order:
-- **Listen fd**: accept new connections (loop until EAGAIN), create timer for each
+- **Listen fd**: accept new connections (loop until EAGAIN), then rate-limit check via `RateLimiter::allow_connection(ip)` — rejected connections receive RST via `SO_LINGER`
 - **Client error** (EPOLLRDHUP/EPOLLHUP/EPOLLERR): remove timer
 - **Pipe fd** (unified signal source): SIGALRM → mark timeout; SIGTERM → stop server
 - **EPOLLIN**: `dealwithread()` — main thread calls `read_once()`, then pushes the `http_conn*` to thread pool
 - **EPOLLOUT**: `dealwithwrite()` — main thread calls `write()` (writev-based scatter/gather)
 
-After each `epoll_wait` iteration, if SIGALRM fired, `timer_handler()` prunes expired timers.
+After each `epoll_wait` iteration, if SIGALRM fired, `timer_handler()` prunes expired timers, then `RateLimiter::cleanup_idle()` removes rate-limit entries idle >2min.
 
 ### Signal handling — unified event source (`webserver.cpp:111-131`)
 
@@ -48,15 +48,15 @@ Methods parsed: GET, POST, PUT, DELETE (PUT/DELETE set `cgi=1` for body parsing)
 /auth/register   → handle_register()   [no auth]
 /auth/login      → handle_login()      [no auth]
 /api/*           → verify_token() + require_role("root") → handle_insert/update/delete
-/4 (POST)        → verify_token() → exam score query    [auth required when -a 1]
+/4 (POST)        → verify_token() → exam score query    [auth required]
 /static files    → mmap serve          [no auth, no DB]
 ```
 
 When `s_auth_enabled == false` (via `-a 0`), `/auth/*` and `/api/*` return 403; `/4` and static files work without auth (legacy mode).
 
-Uses `EPOLLONESHOT` on all **client** fds; after processing, `modfd()` re-arms the fd for the next event. The **listen fd** does NOT use EPOLLONESHOT — it's registered with `EPOLLIN | EPOLLRDHUP` only, so it fires for every new connection without needing re-arm.
+All client fds use **EPOLLONESHOT**; after processing, `modfd()` re-arms the fd for the next event. The listen fd does NOT use EPOLLONESHOT.
 
-Response is built with `process_write()` which assembles status line, headers, and body into `iovec` scatter/gather buffers for `writev`.
+Response is built with `process_write()` which assembles status line, headers, and body into `iovec` scatter/gather buffers for `writev`. Static files served via `mmap` (zero-copy into writev). `TCP_CORK` coalesces response headers + body into fewer TCP segments.
 
 ### Auth module (`auth/`)
 
@@ -64,7 +64,15 @@ Response is built with `process_write()` which assembles status line, headers, a
 
 **`jwt.h`** — Lightweight HS256 JWT (no external deps, only OpenSSL HMAC). Token: `base64url(header).base64url(payload).base64url(signature)`. Payload: `{"sub":"user","role":"root","exp":...,"iat":...}`. Default TTL 24h.
 
-JWT secret is hardcoded in `http_conn.cpp` as `JWT_SECRET` — production deployments should override via env var or config.
+JWT secret is generated at startup: reads `JWT_SECRET` env var if set, otherwise generates a random 256-bit hex key via `RAND_bytes`. Changing the secret invalidates all existing tokens — each restart does this by default.
+
+### Logging (`log/`)
+
+Header-only structured logging module (`app_log` namespace). `Logger` singleton with `Sink`-based output — `ConsoleSink` (color stderr) and `FileSink` (daily rotation + size-based rotation, default 100MB × 10 files). Six levels: TRACE/DEBUG/INFO/WARN/ERROR/FATAL.
+
+Macros `LOG_INFO(fmt, ...)` etc. auto-capture `__FILE__`, `__LINE__`, `__func__`. Compile-time filtering via `#define LOG_ACTIVE_LEVEL 3` before including `log/log.h` — lower-level calls become `(void)0` (zero cost). Runtime filtering via `logger.set_level()`. Printf-style format strings (not fmtlib).
+
+Initialized in `main.cpp`: console + file sink at `build/`, source root set to strip absolute paths in output. All `std::cout`/`std::cerr` in `webserver.cpp`, `redis_pool.cpp`, `redis_cache.cpp` replaced with `LOG_*` macros.
 
 ### Thread pool (`thread_pool/thread_pool.h`)
 
@@ -76,13 +84,13 @@ Uses `std::set<util_timer*, timer_cmp>` ordered by `expire` time (with pointer-a
 
 ### MySQL connection pool (`mysql/mysql_pool.cpp`)
 
-Singleton (`GetInstance()` via local static). Protected by `std::counting_semaphore` for blocking acquire and `std::mutex` for deque access. `connectionRAII` acquires on construction and releases on destruction — workers use it to get a connection for the duration of `process()`.
+Singleton (`GetInstance()` via local static). Protected by `std::counting_semaphore` for blocking acquire and `std::mutex` for deque access. `connectionRAII` acquires on construction and releases on destruction.
 
-On `init()`, the first connection's SSL session is cached via `mysql_get_ssl_session_data()` and applied to subsequent connections via `MYSQL_OPT_SSL_SESSION_DATA` for TLS session resumption. Connect timeout is 3s, read/write timeout is 10s (prevents blocking on unreachable hosts). On `GetConnection()`, `mysql_ping()` checks liveness and auto-reconnects if stale.
+On `init()`, the first connection's SSL session is cached via `mysql_get_ssl_session_data()` and applied to subsequent connections via `MYSQL_OPT_SSL_SESSION_DATA` for TLS session resumption. Connect timeout is 3s, read/write timeout is 10s. On `GetConnection()`, `mysql_ping()` checks liveness every 60s and auto-reconnects if stale.
 
 ### Redis caching layer (`redis/`)
 
-**Connection pool** (`redis_pool.cpp`): Same singleton + RAII pattern as MySQL pool. Uses `std::counting_semaphore` for blocking acquire. Health-checks connections with PING every 60s; automatically reconnects on failure. If initialization fails, the server degrades gracefully to MySQL-only mode.
+**Connection pool** (`redis_pool.cpp`): Same singleton + RAII pattern as MySQL pool. Health-checks with PING every 60s; auto-reconnects on failure. If initialization fails, `m_initialized` stays false — `GetConnection()` returns `nullptr` immediately, and the cache layer deactivates without crashing the server.
 
 **Cache** (`redis_cache.h/.cpp`): Singleton wrapping hiredis with three-tier protection:
 1. **Bloom filter** (cache penetration): `BloomFilter` (FNV-1a + std::hash dual-hash, default 1M elements @ 1% FP rate) rejects keys known not to exist.
@@ -93,7 +101,7 @@ TTL randomization (±10% jitter) prevents avalanche expiration. Null values are 
 
 ### Rate limiter (`rate_limiter/`)
 
-**`token_bucket.h`** — Token bucket algorithm for smooth rate limiting with burst support. `consume(cost)` refills tokens at `rate_` per second (max `burst_`), rejects if insufficient. Uses `std::chrono::steady_clock` for timing and per-bucket `std::mutex` for thread safety. Why token bucket over leaky bucket or fixed/sliding window: allows short bursts (burst of up to 200 tokens) while enforcing long-term average, with zero network overhead (local memory only).
+**`token_bucket.h`** — Token bucket algorithm with per-bucket `std::mutex`. `consume(cost)` refills tokens at `rate_`/s (max `burst_`), rejects if insufficient.
 
 **`rate_limiter.h`** — Singleton managing per-IP token buckets keyed by `(endpoint, IP)` pair. Endpoint-specific rate/burst defaults:
 
@@ -105,19 +113,15 @@ TTL randomization (±10% jitter) prevents avalanche expiration. Null values are 
 | `connect` | 100/s | 200 | Connection-level flood defense (checked at `accept()` time) |
 | `global` | 50/s | 100 | /4 queries, static files |
 
-`cleanup_idle(120)` is called in the event loop after each timer tick to remove entries idle >2min, preventing unbounded memory growth. All public methods hold `std::mutex` for concurrent worker-thread access.
-
-### Audit logging
-
-`write_audit_log()` is called after each successful INSERT/UPDATE/DELETE in the CRUD handlers. Writes to `audit_log` table (best-effort, does not affect main flow). Records: `username`, `operation`, `target` (table#id), `detail` (JSON summary).
+`cleanup_idle(120)` is called in the event loop after each timer tick to remove entries idle >2min.
 
 ## Key hardcoded values
 
 - DB host: `192.168.19.1:3306` (in `webserver.cpp`)
-- Document root: `/home/user/TinyWebServer/root` (in `webserver.cpp`; allocated via `malloc`, never freed — intentional, lives for process lifetime)
+- Document root: `/home/user/TinyWebServer/root` (in `webserver.cpp`; allocated via `malloc`, never freed — intentional)
 - DB credentials: `user` / `123456` / database `server` (in `main.cpp`)
 - Redis: `127.0.0.1:6379`, no password, pool size 16, db index 0
-- JWT secret: `tinywebserver-jwt-secret-2024` (in `http_conn.cpp`)
+- JWT secret: from `JWT_SECRET` env var, or random 256-bit hex key generated at startup (in `http_conn.cpp`)
 - Listen backlog: 4096
 - Max connections: `MAX_FD = 65536`
 
@@ -129,31 +133,13 @@ go run pressureTest.go -c 10000 -t 60 -url http://localhost:8080/4
 
 Perf flamegraph (commands in README.md).
 
-## Performance
-
-### Known bottlenecks (flamegraph analysis)
-
-Under 10K+ concurrency, the top CPU consumers are:
-
-1. **`WebServer::dealwithwrite` (~47%)** — Proactor main thread handles all writes synchronously; `while(1)` writev loop blocks the epoll cycle.
-2. **`http_conn::write` (~21%)** — iovec scatter/gather management per iteration; TCP_CORK already applied to coalesce small packets.
-3. **`http_conn::process` (~15%)** — CGI path redefines 4 lambdas per request, builds JSON via repeated `std::string +=` (multiple reallocs).
-4. **`WebServer::dealwithread` (~14%)** — single `recv` per epoll event in LT mode; incomplete reads require multiple epoll cycles.
-5. **`http_conn::process_read` (~13%)** — character-by-character `parse_line()` loop; consider `memmem` for `\r\n\r\n` boundary scan.
-
-**Timer overhead** — `adjust_timer()` does `find+erase+insert` on `std::set` (3× O(log n) RB-tree ops) on every read/write. At 10K connections this is ~39 comparisons per call.
-
-### Recent optimizations applied
-
-- **TCP_CORK** enabled in `http_conn::write()` — response headers + mmap body coalesced into fewer TCP segments before flushing.
-- **WRITE_BUFFER_SIZE** increased from 1024 to 4096 — reduces writev fragmentation, aligned to page size.
-
 ## C++ conventions
 
 - Standard: C++20 (`CMAKE_CXX_STANDARD 20`)
 - Smart pointers preferred (`std::unique_ptr`, `std::make_unique`) for ownership of arrays and objects
 - RAII for resource management (connections, mmap regions)
 - `std::counting_semaphore` (C++20) for thread synchronization instead of POSIX semaphores
+- Header-only template/utility code where possible (`auth/`, `rate_limiter/`, `thread_pool/`, `redis/bloom_filter.h`, `redis/circuit_breaker.h`)
 
 ## Formatting
 

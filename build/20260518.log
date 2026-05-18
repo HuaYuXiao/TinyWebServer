@@ -1,0 +1,11 @@
+2026-05-18 09:41:35.134 [INFO] main.cpp:12 main — ========== TinyWebServer starting ==========
+2026-05-18 09:41:35.528 [INFO] main.cpp:28 main — Config: port=9006, sql_pool=8, threads=64, redis_pool=8, auth=on
+2026-05-18 09:41:35.528 [INFO] webserver.cpp:47 init_mysql_pool — Initializing MySQL connection pool (8 connections)
+2026-05-18 09:41:35.824 [INFO] mysql/mysql_pool.cpp:90 init — MySQL pool initialized: 8 connections (host=192.168.19.1)
+2026-05-18 09:41:35.825 [INFO] webserver.cpp:51 init_mysql_pool — MySQL connection pool initialized successfully
+2026-05-18 09:41:35.825 [INFO] webserver.cpp:66 init_thread_pool — Initializing thread pool (64 threads)
+2026-05-18 09:41:35.830 [INFO] webserver.cpp:68 init_thread_pool — Thread pool initialized
+2026-05-18 09:41:35.830 [INFO] webserver.cpp:55 init_redis_pool — Initializing Redis connection pool (host=127.0.0.1, port=6379, pool=16)
+2026-05-18 09:41:35.831 [INFO] redis/redis_pool.cpp:67 init — Redis pool initialized: 16 connections
+2026-05-18 09:41:35.845 [INFO] webserver.cpp:62 init_redis_pool — Redis cache layer initialized (bloom + circuit_breaker)
+2026-05-18 09:41:35.845 [INFO] webserver.cpp:144 eventListen — Server listening on 0.0.0.0:9006 (auth=on)

@@ -1,6 +1,6 @@
 #include "mysql_pool.h"
+#include "log/log.h"
 #include <deque>
-#include <iostream>
 #include <mutex>
 #include <mysql/mysql.h>
 #include <stdio.h>
@@ -38,7 +38,6 @@ void connection_pool::init(const string &url, const string &User,
     // 1. 初始化MySQL连接句柄
     MYSQL *mysql_conn = mysql_init(NULL);
     if (!mysql_conn) { // 必须检查返回值是否为NULL
-      std::cerr << mysql_error(mysql_conn) << std::endl;
       exit(1);
     }
 
@@ -67,7 +66,6 @@ void connection_pool::init(const string &url, const string &User,
                             0                 // 连接标志
                             )) {
       mysql_close(mysql_conn); // 失败时也需要关闭句柄释放资源
-      std::cerr << mysql_error(mysql_conn) << std::endl;
       exit(1);
     }
 
@@ -89,6 +87,7 @@ void connection_pool::init(const string &url, const string &User,
   semaphore_.release(m_FreeConn);
 
   m_MaxConn = m_FreeConn;
+  LOG_INFO("MySQL pool initialized: %d connections (host=%s)", m_FreeConn, m_url.c_str());
 }
 
 // 当有请求时，从数据库连接池中返回一个可用连接，更新使用和空闲连接数
