@@ -11,7 +11,7 @@
 class BloomFilter {
 public:
   // n: 预估元素数量, p: 期望误判率 (默认 0.01 = 1%)
-  BloomFilter(size_t expected_elements = 10000000, double false_positive_rate = 0.01);
+  BloomFilter(size_t expected_elements = 8662500, double false_positive_rate = 0.01);
 
   void insert(const std::string &key);
   bool contains(const std::string &key) const;

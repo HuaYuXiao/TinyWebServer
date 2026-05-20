@@ -93,7 +93,7 @@ On `init()`, the first connection's SSL session is cached via `mysql_get_ssl_ses
 **Connection pool** (`redis_pool.cpp`): Same singleton + RAII pattern as MySQL pool. Health-checks with PING every 60s; auto-reconnects on failure. If initialization fails, `m_initialized` stays false — `GetConnection()` returns `nullptr` immediately, and the cache layer deactivates without crashing the server.
 
 **Cache** (`redis_cache.h/.cpp`): Singleton wrapping hiredis with three-tier protection:
-1. **Bloom filter** (cache penetration): `BloomFilter` (FNV-1a + std::hash dual-hash, default 1M elements @ 1% FP rate) rejects keys known not to exist.
+1. **Bloom filter** (cache penetration): `BloomFilter` (FNV-1a + std::hash dual-hash, 8.66M elements @ 1% FP rate, ~10 MB) rejects keys known not to exist.
 2. **Circuit breaker** (fault tolerance): `CircuitBreaker` (3-state: CLOSED→OPEN→HALF_OPEN, 5 consecutive failures → 30s cooldown → probe) skips Redis and falls back to direct DB queries.
 3. **Distributed mutex lock** (hotspot invalidation): `SETNX`-based lock with double-check prevents thundering-herd cache rebuilds.
 
