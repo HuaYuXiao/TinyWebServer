@@ -51,7 +51,8 @@ public:
        int base_ttl = 3600);
 
   // 预热布隆过滤器（从 DB 加载已有键集合，防止冷启动穿透）
-  void warm_bloom(const std::vector<std::string> &keys);
+  // expected_elements: 预期元素总数，用于按最优参数重新分配位数组
+  void warm_bloom(const std::vector<std::string> &keys, size_t expected_elements = 0);
 
   // 重置熔断器（运维接口）
   void reset_breaker() { circuit_breaker_.reset(); }

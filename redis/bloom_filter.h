@@ -11,11 +11,15 @@
 class BloomFilter {
 public:
   // n: 预估元素数量, p: 期望误判率 (默认 0.01 = 1%)
-  BloomFilter(size_t expected_elements = 8662500, double false_positive_rate = 0.01);
+  BloomFilter(size_t expected_elements = 1000000, double false_positive_rate = 0.01);
 
   void insert(const std::string &key);
   bool contains(const std::string &key) const;
   void clear();
+
+  // 按新的预期元素数量重新分配位数组（清空已有数据）
+  void reset(size_t expected_elements, double false_positive_rate = 0.01);
+
   size_t size() const { return bit_count_ / 64; }
 
 private:
@@ -78,6 +82,17 @@ inline bool BloomFilter::contains(const std::string &key) const {
 
 inline void BloomFilter::clear() {
   std::fill(bits_.begin(), bits_.end(), 0);
+}
+
+inline void BloomFilter::reset(size_t expected_elements,
+                               double false_positive_rate) {
+  double m = -static_cast<double>(expected_elements) *
+             std::log(false_positive_rate) / (std::log(2.0) * std::log(2.0));
+  double k = (m / static_cast<double>(expected_elements)) * std::log(2.0);
+
+  bit_count_ = static_cast<size_t>(m) + 1;
+  num_hashes_ = static_cast<size_t>(k) + 1;
+  bits_.assign((bit_count_ + 63) / 64, 0);
 }
 
 #endif

@@ -46,7 +46,25 @@ public:
 
   // 预热布隆过滤器（系统启动时调用，从 DB 加载已有考生集合）
   static void warmup(MYSQL *mysql) {
+    // 先查询 student 表实际行数，用于计算布隆过滤器最优参数
+    size_t total_students = 0;
+    if (!mysql_query(mysql, "SELECT COUNT(*) FROM student")) {
+      MYSQL_RES *cnt_result = mysql_store_result(mysql);
+      if (cnt_result) {
+        MYSQL_ROW cnt_row = mysql_fetch_row(cnt_result);
+        if (cnt_row && cnt_row[0]) {
+          total_students = static_cast<size_t>(std::stoull(cnt_row[0]));
+        }
+        mysql_free_result(cnt_result);
+      }
+    }
+
+    if (total_students == 0) {
+      return;
+    }
+
     std::vector<std::string> keys;
+    keys.reserve(total_students);
     std::string sql =
         "SELECT CONCAT(name, ':', REPLACE(id_card, ' ', '')) FROM student";
 
@@ -65,7 +83,8 @@ public:
     }
     mysql_free_result(result);
 
-    RedisCache::GetInstance()->warm_bloom(keys);
+    // 传入精确行数，布隆过滤器按最优 m/k 重新分配
+    RedisCache::GetInstance()->warm_bloom(keys, total_students);
   }
 
 private:

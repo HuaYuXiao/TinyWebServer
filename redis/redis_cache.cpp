@@ -26,13 +26,18 @@ int RedisCache::random_ttl(int base_ttl) const {
 
 // ── 布隆过滤器预热 ──────────────────────────────────────────────────────
 
-void RedisCache::warm_bloom(const std::vector<std::string> &keys) {
+void RedisCache::warm_bloom(const std::vector<std::string> &keys,
+                            size_t expected_elements) {
   std::lock_guard<std::mutex> lock(bloom_warm_mutex_);
+  if (expected_elements > 0) {
+    bloom_filter_.reset(expected_elements);
+  }
   for (const auto &key : keys) {
     bloom_filter_.insert(key);
   }
   bloom_warmed_ = true;
-  LOG_INFO("Bloom filter warmed: %zu keys", keys.size());
+  LOG_INFO("Bloom filter warmed: %zu keys (capacity=%zu)", keys.size(),
+           expected_elements);
 }
 
 // ── 底层 Redis 操作 ─────────────────────────────────────────────────────
